@@ -33,8 +33,6 @@ import Language.LXDFile (LXDFile(..), Action(..), Arguments(..),
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (exec)
 
-import Debug.Trace
-
 data BuildAction = BuildRun (Maybe FilePath) [Arguments]
                  | BuildChangeDirectory FilePath
                  | BuildCopy Source Destination
@@ -54,7 +52,7 @@ build :: (MonadIO m, MonadError String m) => LXDFile -> String -> FilePath -> m 
 build LXDFile{..} name context = do
     container <- launch `orThrowM` "error: could not launch container"
     echo $ "Building " <> pack name <> " in " <> container
-    mapM_ (buildAction container context) $ traceShowId (bundleActions (traceShowId actions))
+    mapM_ (buildAction container context) $ bundleActions actions
     echo $ "Stopping " <> container
     lxc ["stop", container]
     echo $ "Publishing to " <> pack name
