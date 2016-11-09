@@ -58,7 +58,9 @@ build LXDFile{..} name context = do
     echo $ "Stopping " <> container
     lxc ["stop", container]
     echo $ "Publishing to " <> pack name
-    lxc ["publish", container, format ("--alias=" % R.s) (pack name)]
+    case description of
+        Nothing ->   lxc ["publish", container, format ("--alias=" % R.s) (pack name)]
+        Just desc -> lxc ["publish", container, format ("--alias=" % R.s) (pack name), format ("description=" % R.s) (pack desc)]
     lxc ["delete", container]
   where
     launch :: MonadIO m => m (Maybe Text)

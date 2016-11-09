@@ -7,11 +7,13 @@ import Data.Maybe (mapMaybe)
 import Text.Parsec (ParseError)
 
 data LXDFile = LXDFile { baseImage :: Image
+                       , description :: Maybe String
                        , actions :: [Action] }
                        deriving (Show)
 
 lxdFile :: MonadError ASTError m => AST -> m LXDFile
 lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
+                      <*> maybeOne ManyDescriptions descriptions
                       <*> allActions
   where
     instructions = map instruction ast
@@ -19,6 +21,10 @@ lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
     baseImages = mapMaybe baseImage' instructions
     baseImage' (From x) = Just x
     baseImage' _        = Nothing
+
+    descriptions = mapMaybe description' instructions
+    description' (Description x) = Just x
+    description' _               = Nothing
 
     allActions = pure $ mapMaybe action' instructions
     action' (Action x) = Just x
@@ -28,14 +34,22 @@ lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
     onlyOne noneErr _ []  = throwError noneErr
     onlyOne _ manyErr _   = throwError manyErr
 
+    maybeOne _       [x] = return $ Just x
+    maybeOne _       []  = return Nothing
+    maybeOne manyErr _   = throwError manyErr
+
 
 data ASTError =
       ManyBaseImages
+    | ManyDescriptions
     | NoBaseImage
+    | NoDescription
 
 instance Show ASTError where
   show ManyBaseImages = "multiple base images specified"
+  show ManyDescriptions = "multiple descriptions specified"
   show NoBaseImage = "no base image specified"
+  show NoDescription = "no description specified"
 
 data LXDFileError = ParseError ParseError | ASTError ASTError
 
@@ -50,6 +64,7 @@ data InstructionPos = InstructionPos Instruction String Int deriving (Show)
 data Instruction =
       Action Action
     | Comment String
+    | Description String
     | From Image
     | EOL
     deriving (Show)

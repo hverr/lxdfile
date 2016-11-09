@@ -9,7 +9,7 @@ import Text.Parsec
 import Text.Parsec.String (Parser)
 
 import Language.LXDFile.Lexer
-import Language.LXDFile.Types
+import Language.LXDFile.Types hiding (description)
 
 parseString :: String -> Either LXDFileError LXDFile
 parseString s = mapLeft ParseError (parseStringAST s) >>= mapLeft ASTError . lxdFile
@@ -29,6 +29,7 @@ instrunction :: Parser Instruction
 instrunction = try cd
            <|> try comment
            <|> try copy
+           <|> try description
            <|> try from
            <|> try run
            <|> try eolInstruction
@@ -46,6 +47,9 @@ copy = do
     whiteSpace
     dst <- untilEol
     return $ Action $ Copy src dst
+
+description :: Parser Instruction
+description = reserved "DESCRIPTION" *> (Description <$> untilEol)
 
 eolInstruction :: Parser Instruction
 eolInstruction = eol *> pure EOL

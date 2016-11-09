@@ -29,6 +29,7 @@ languageDef = emptyDef { Token.reservedNames = reservedNames }
 reservedNames :: [String]
 reservedNames = [ "CD"
                 , "COPY"
+                , "DESCRIPTION"
                 , "FROM"
                 , "RUN"
                 ]
