@@ -26,7 +26,8 @@ parseFileAST :: FilePath -> IO (Either ParseError AST)
 parseFileAST fp = parse (contents ast) fp . normalize <$> readFile fp
 
 instrunction :: Parser Instruction
-instrunction = try comment
+instrunction = try cd
+           <|> try comment
            <|> try copy
            <|> try from
            <|> try run
@@ -34,6 +35,9 @@ instrunction = try comment
 
 comment :: Parser Instruction
 comment = char '#' *> (Comment <$> untilEol)
+
+cd :: Parser Instruction
+cd = reserved "CD" *> (Action . ChangeDirectory <$> untilEol)
 
 copy :: Parser Instruction
 copy = do

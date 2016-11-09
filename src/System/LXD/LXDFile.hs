@@ -7,8 +7,10 @@ module System.LXD.LXDFile (
 
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.State (State, evalState, get, put)
 
 import Data.Either.Combinators (rightToMaybe)
+import Data.Foldable (foldlM)
 import Data.List (intercalate)
 import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
@@ -31,20 +33,28 @@ import Language.LXDFile (LXDFile(..), Action(..), Arguments(..),
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (exec)
 
-data BuildAction = BuildRun [Arguments]
+import Debug.Trace
+
+data BuildAction = BuildRun (Maybe FilePath) [Arguments]
+                 | BuildChangeDirectory FilePath
                  | BuildCopy Source Destination
+                 deriving (Show)
 
 bundleActions :: [Action] -> [BuildAction]
-bundleActions = foldr bundleActions' []
+bundleActions actions = reverse $ evalState (foldlM bundleActions' [] actions) Nothing
   where
-    bundleActions' (Copy src dst) xs= BuildCopy src dst:xs
-    bundleActions' (Run x) (BuildRun args:xs) = BuildRun (args ++ [x]):xs
-    bundleActions' (Run x) xs = BuildRun [x]:xs
+    bundleActions' :: [BuildAction] -> Action -> State (Maybe FilePath) [BuildAction]
+    bundleActions' xs (ChangeDirectory fp) = put (Just fp) >> return (BuildChangeDirectory fp : xs)
+    bundleActions' xs (Copy src dst) = return $ BuildCopy src dst : xs
+    bundleActions' (BuildRun wd args:xs) (Run x) = return $ BuildRun wd (args ++ [x]) : xs
+    bundleActions' xs (Run x) = do r <- BuildRun <$> get <*> pure [x]
+                                   return (r:xs)
+
 build :: (MonadIO m, MonadError String m) => LXDFile -> String -> FilePath -> m ()
 build LXDFile{..} name context = do
     container <- launch `orThrowM` "error: could not launch container"
     echo $ "Building " <> pack name <> " in " <> container
-    mapM_ (buildAction container context) $ bundleActions actions
+    mapM_ (buildAction container context) $ traceShowId (bundleActions (traceShowId actions))
     echo $ "Stopping " <> container
     lxc ["stop", container]
     echo $ "Publishing to " <> pack name
@@ -59,7 +69,7 @@ build LXDFile{..} name context = do
     parseLaunch = (pack <$>) . rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
 
 buildAction :: (MonadIO m, MonadError String m) => Text -> FilePath -> BuildAction -> m ()
-buildAction container _ (BuildRun cmds) = do
+buildAction container _ (BuildRun wd cmds) = do
     script <- makeScript
     lxc ["exec", "--mode=non-interactive", container, "--", "mkdir", "/var/run/lxdfile"]
     lxc ["file", "push", "--mode=0700", toText script, container <> "/var/run/lxdfile/setup"]
@@ -72,12 +82,16 @@ buildAction container _ (BuildRun cmds) = do
 
     makeScript = do
         fp <- decodeString <$> tmpfile "lxdfile-setup.sh"
-        let cmds' = map (return . pack . (++ "\n") . argumentsToShell) cmds
-        output fp $ mconcat (return "#!/bin/sh\n\nset -ex\n\n" : cmds')
+        let cmds' = [ return "#!/bin/sh"
+                    , return "set -ex"
+                    ] ++ map ((cdToWd <>) . argumentsToShell) cmds
+        output fp $ mconcat $ fmap (<> "\n") cmds'
         return fp
 
-    argumentsToShell (ArgumentsShell s) = s
-    argumentsToShell (ArgumentsList xs) = unwords $ map escapeArg xs
+    cdToWd | Just wd' <- wd = return $ "cd " <> pack wd' <> "\n"
+           | otherwise = mempty
+    argumentsToShell (ArgumentsShell s) = return $ pack s
+    argumentsToShell (ArgumentsList xs) = return . pack . unwords $ map escapeArg xs
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
 buildAction container context (BuildCopy src dst) = do
@@ -96,6 +110,8 @@ buildAction container context (BuildCopy src dst) = do
         fp <- tmpfile "lxdfile-archive.tar"
         liftIO $ Tar.create fp context [src]
         return fp
+
+buildAction _ _ (BuildChangeDirectory _) = return ()
 
 lxc :: (MonadIO m, MonadError String m) => [Text] -> m ()
 lxc args = exec "lxc" args Nothing

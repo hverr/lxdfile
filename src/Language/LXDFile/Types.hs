@@ -55,7 +55,8 @@ data Instruction =
     deriving (Show)
 
 data Action =
-      Copy Source Destination
+      ChangeDirectory String
+    | Copy Source Destination
     | Run Arguments
     deriving (Show)
 
