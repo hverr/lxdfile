@@ -10,6 +10,7 @@ import Options.Applicative
 import System.Exit (exitFailure)
 
 import Language.LXDFile (parseFile)
+import qualified System.LXD.LXDFile as LXDFile
 
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
 
@@ -45,8 +46,7 @@ cmd action = do
 build :: (MonadIO m, MonadError String m) => FilePath -> String -> FilePath -> m ()
 build fp name dir = do
     lxdfile <- liftIO (parseFile fp) >>= orErr "parse error"
-    liftIO $ putStrLn $ "Building " ++ name ++ " with " ++ fp ++ " using context " ++ dir
-    liftIO $ print lxdfile
+    LXDFile.build lxdfile name dir
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e

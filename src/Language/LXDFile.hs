@@ -5,7 +5,7 @@ module Language.LXDFile (
 , parseFile
 
   -- * Top-level types
-, LXDFile
+, LXDFile(..)
 , Action(..)
 , Image
 
