@@ -15,7 +15,6 @@ import Data.Monoid ((<>))
 import Data.Text (Text, pack, unpack)
 
 import Text.Parsec (parse, many, noneOf, string)
-import Text.Parsec.String (Parser)
 
 import Filesystem.Path.CurrentOS (decodeString, encodeString)
 import Turtle (Fold(..), fold, echo, output, inproc, rm, format, (%))

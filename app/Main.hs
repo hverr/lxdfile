@@ -19,11 +19,11 @@ newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
 
 buildCmd :: Mod CommandFields Command
 buildCmd =
-    command "build" $ info (helper <*> cmd) $ progDesc "build an LXD image using an LXDFile"
+    command "build" $ info (helper <*> cmd') $ progDesc "build an LXD image using an LXDFile"
  where
-    cmd = BuildCommand <$> strOption (short 'f' <> metavar "LXDFILE" <> value "lxdfile" <> help "location of the lxdfile")
-                       <*> strArgument (metavar "NAME" <> help "name of the newly built image")
-                       <*> strArgument (metavar "DIR" <> value "." <> help "base directory")
+    cmd' = BuildCommand <$> strOption (short 'f' <> metavar "LXDFILE" <> value "lxdfile" <> help "location of the lxdfile")
+                        <*> strArgument (metavar "NAME" <> help "name of the newly built image")
+                        <*> strArgument (metavar "DIR" <> value "." <> help "base directory")
 
 subcommand :: Parser Command
 subcommand = subparser buildCmd
@@ -36,8 +36,8 @@ main =
     run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
 
 cmd :: CmdT IO () -> IO ()
-cmd action = do
-    x <- runExceptT $ runCmdT action
+cmd action' = do
+    x <- runExceptT $ runCmdT action'
     case x of Right () -> return ()
               Left e -> do
                 putStrLn $ "error: " ++ e

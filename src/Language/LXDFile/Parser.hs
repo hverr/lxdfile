@@ -16,8 +16,8 @@ parseString s = mapLeft ParseError (parseStringAST s) >>= mapLeft ASTError . lxd
 
 parseFile :: FilePath -> IO (Either LXDFileError LXDFile)
 parseFile fp = do
-    ast <- parseFileAST fp
-    return $ mapLeft ParseError ast >>= mapLeft ASTError . lxdFile
+    ast' <- parseFileAST fp
+    return $ mapLeft ParseError ast' >>= mapLeft ASTError . lxdFile
 
 parseStringAST :: String -> Either ParseError AST
 parseStringAST = parse (contents ast) "(string)" . normalize

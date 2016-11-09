@@ -7,8 +7,6 @@ import qualified Text.Parsec.Token as Token
 
 lexer :: TokenParser ()
 lexer = makeTokenParser languageDef
-  where
-    def = emptyDef { Token.reservedNames = reservedNames}
 
 reserved :: String -> Parser ()
 reserved = Token.reserved lexer
