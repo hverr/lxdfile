@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Module to interact with lxdfiles.
 module System.LXD.LXDFile (
- build
+  build
 ) where
 
 import Control.Monad.Except (MonadError)

@@ -60,6 +60,9 @@ from = reserved "FROM" *> (From <$> untilEol)
 run :: Parser Instruction
 run = reserved "RUN" *> (Action . Run <$> arguments)
 
+volume :: Parser Instruction
+volume = reserved "VOLUME" *> (Volume <$> untilEol)
+
 arguments :: Parser Arguments
 arguments = try argumentsList <|> try argumentsShell
 

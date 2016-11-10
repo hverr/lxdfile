@@ -32,4 +32,5 @@ reservedNames = [ "CD"
                 , "DESCRIPTION"
                 , "FROM"
                 , "RUN"
+                , "VOLUME"
                 ]

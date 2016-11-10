@@ -8,12 +8,14 @@ import Text.Parsec (ParseError)
 
 data LXDFile = LXDFile { baseImage :: Image
                        , description :: Maybe String
+                       , volumes :: [FilePath]
                        , actions :: [Action] }
                        deriving (Show)
 
 lxdFile :: MonadError ASTError m => AST -> m LXDFile
 lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
                       <*> maybeOne ManyDescriptions descriptions
+                      <*> allVolumes
                       <*> allActions
   where
     instructions = map instruction ast
@@ -29,6 +31,10 @@ lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
     allActions = pure $ mapMaybe action' instructions
     action' (Action x) = Just x
     action' _          = Nothing
+
+    allVolumes = pure $ mapMaybe volume' instructions
+    volume' (Volume x) = Just x
+    volume' _          = Nothing
 
     onlyOne _ _       [x] = return x
     onlyOne noneErr _ []  = throwError noneErr
@@ -66,6 +72,7 @@ data Instruction =
     | Comment String
     | Description String
     | From Image
+    | Volume FilePath
     | EOL
     deriving (Show)
 
