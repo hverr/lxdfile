@@ -25,6 +25,9 @@ library
                      , System.LXD.LXDFile.Utils.Monad
                      , System.LXD.LXDFile.Utils.Shell
   build-depends:       base >= 4.7 && < 5
+                     , aeson
+                     , aeson-pretty
+                     , bytestring
                      , directory
                      , either
                      , filepath

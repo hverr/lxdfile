@@ -5,10 +5,15 @@ module System.LXD.LXDFile (
   build
 ) where
 
+import Prelude hiding (writeFile)
+
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader (MonadReader, runReaderT, ask)
 import Control.Monad.State (State, evalState, get, put)
 
+import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.ByteString.Lazy (writeFile)
 import Data.Either.Combinators (rightToMaybe)
 import Data.Foldable (foldlM)
 import Data.List (intercalate)
@@ -18,7 +23,7 @@ import Data.Text (Text, pack, unpack)
 
 import Text.Parsec (parse, many, noneOf, string)
 
-import Filesystem.Path.CurrentOS (decodeString, encodeString)
+import Filesystem.Path.CurrentOS (decodeString)
 import Turtle (Fold(..), fold, echo, output, inproc, rm, format, (%))
 import qualified Codec.Archive.Tar as Tar
 import qualified Turtle as R
@@ -38,6 +43,11 @@ data BuildAction = BuildRun (Maybe FilePath) [Arguments]
                  | BuildCopy Source Destination
                  deriving (Show)
 
+data BuildCtx = BuildCtx { lxdfile :: LXDFile
+                         , imageName :: String
+                         , context :: FilePath
+                         , buildContainer :: Text }
+
 bundleActions :: [Action] -> [BuildAction]
 bundleActions actions = reverse $ evalState (foldlM bundleActions' [] actions) Nothing
   where
@@ -49,17 +59,26 @@ bundleActions actions = reverse $ evalState (foldlM bundleActions' [] actions) N
                                    return (r:xs)
 
 build :: (MonadIO m, MonadError String m) => LXDFile -> String -> FilePath -> m ()
-build LXDFile{..} name context = do
+build lxdfile'@LXDFile{..} imageName' context' = do
     container <- launch `orThrowM` "error: could not launch container"
-    echo $ "Building " <> pack name <> " in " <> container
-    mapM_ (buildAction container context) $ bundleActions actions
-    echo $ "Stopping " <> container
-    lxc ["stop", container]
-    echo $ "Publishing to " <> pack name
-    case description of
-        Nothing ->   lxc ["publish", container, format ("--alias=" % R.s) (pack name)]
-        Just desc -> lxc ["publish", container, format ("--alias=" % R.s) (pack name), format ("description=" % R.s) (pack desc)]
-    lxc ["delete", container]
+    let ctx = BuildCtx { lxdfile = lxdfile'
+                       , imageName = imageName'
+                       , context = context'
+                       , buildContainer = container }
+    flip runReaderT ctx $ do
+        echo $ "Building " <> pack imageName' <> " in " <> container
+
+        mapM_ buildAction $ bundleActions actions
+        includeLXDFile
+
+        echo $ "Stopping " <> container
+        lxc ["stop", container]
+
+        echo $ "Publishing to " <> pack imageName'
+        case description of
+            Nothing ->   lxc ["publish", container, format ("--alias=" % R.s) (pack imageName')]
+            Just desc -> lxc ["publish", container, format ("--alias=" % R.s) (pack imageName'), format ("description=" % R.s) (pack desc)]
+        lxc ["delete", container]
   where
     launch :: MonadIO m => m (Maybe Text)
     launch = fold (inproc "lxc" ["launch", pack baseImage] mempty) $
@@ -68,24 +87,23 @@ build LXDFile{..} name context = do
     selectLaunchName _        x = parseLaunch x
     parseLaunch = (pack <$>) . rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
 
-buildAction :: (MonadIO m, MonadError String m) => Text -> FilePath -> BuildAction -> m ()
-buildAction container _ (BuildRun wd cmds) = do
+buildAction :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => BuildAction -> m ()
+buildAction (BuildRun wd cmds) = do
     script <- makeScript
-    lxc ["exec", "--mode=non-interactive", container, "--", "mkdir", "/var/run/lxdfile"]
-    lxc ["file", "push", "--mode=0700", toText script, container <> "/var/run/lxdfile/setup"]
-    rm script
-    lxc ["exec", "--mode=non-interactive", container, "--", "/var/run/lxdfile/setup"]
-    lxc ["exec", "--mode=non-interactive", container, "--", "rm", "-rf", "/var/run/lxdfile"]
+    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcFilePush "0700" script "/var/run/lxdfile/setup"
+    rm (decodeString script)
+    lxcExec ["/var/run/lxdfile/setup"]
+    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     replace old new = intercalate new . splitOn old
-    toText = pack . encodeString
 
     makeScript = do
-        fp <- decodeString <$> tmpfile "lxdfile-setup.sh"
+        fp <- tmpfile "lxdfile-setup.sh"
         let cmds' = [ return "#!/bin/sh"
                     , return "set -ex"
                     ] ++ map ((cdToWd <>) . argumentsToShell) cmds
-        output fp $ mconcat $ fmap (<> "\n") cmds'
+        output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
         return fp
 
     cdToWd | Just wd' <- wd = return $ "cd " <> pack wd' <> "\n"
@@ -94,27 +112,46 @@ buildAction container _ (BuildRun wd cmds) = do
     argumentsToShell (ArgumentsList xs) = return . pack . unwords $ map escapeArg xs
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
-buildAction container context (BuildCopy src dst) = do
+buildAction (BuildCopy src dst) = do
     echo $ "COPY " <> pack src <> " " <> pack dst
     tar <- createTar
-    lxc ["exec", "--mode=non-interactive", container, "--", "mkdir", "/var/run/lxdfile"]
-    lxc ["file", "push", "--mode=0600", pack tar, container <> "/var/run/lxdfile/archive.tar"]
+    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
     rm (decodeString tar)
-    lxc ["exec", "--mode=non-interactive", container, "--", "mkdir", "/var/run/lxdfile/archive"]
-    lxc ["exec", "--mode=non-interactive", container, "--", "tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
-    lxc ["exec", "--mode=non-interactive", container, "--", "mkdir", "-p", pack (takeDirectory dst)]
-    lxc ["exec", "--mode=non-interactive", container, "--", "cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
-    lxc ["exec", "--mode=non-interactive", container, "--", "rm", "-rf", "/var/run/lxdfile"]
+    lxcExec ["mkdir", "/var/run/lxdfile/archive"]
+    lxcExec ["tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
+    lxcExec ["mkdir", "-p", pack (takeDirectory dst)]
+    lxcExec ["cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
+    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     createTar = do
+        ctx <- context <$> ask
         fp <- tmpfile "lxdfile-archive.tar"
-        liftIO $ Tar.create fp context [src]
+        liftIO $ Tar.create fp ctx [src]
         return fp
 
-buildAction _ _ (BuildChangeDirectory _) = return ()
+buildAction (BuildChangeDirectory _) = return ()
+
+includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
+includeLXDFile = do
+    file <- tmpfile "lxdfile-metadata-lxdfile"
+    ask >>= liftIO . writeFile file . encodePretty . lxdfile
+    lxcExec ["mkdir", "-p", "/etc/lxdfile"]
+    lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
+    rm (decodeString file)
 
 lxc :: (MonadIO m, MonadError String m) => [Text] -> m ()
 lxc args = exec "lxc" args Nothing
+
+lxcExec :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => [Text] -> m ()
+lxcExec args = do
+    c <- buildContainer <$> ask
+    lxc $ ["exec", "--mode=non-interactive", c, "--"] ++ args
+
+lxcFilePush :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => String -> FilePath -> FilePath -> m ()
+lxcFilePush mode src dst = do
+    c <- buildContainer <$> ask
+    lxc ["file", "push", "--mode=" <> pack mode, pack src, c <> "/" <> pack dst]
 
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do

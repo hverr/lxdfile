@@ -1,8 +1,12 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Language.LXDFile.Types where
 
 import Control.Monad.Error.Class (MonadError, throwError)
 import Data.Maybe (mapMaybe)
+
+import Data.Aeson (FromJSON, ToJSON)
+import GHC.Generics (Generic)
 
 import Text.Parsec (ParseError)
 
@@ -10,7 +14,10 @@ data LXDFile = LXDFile { baseImage :: Image
                        , description :: Maybe String
                        , volumes :: [FilePath]
                        , actions :: [Action] }
-                       deriving (Show)
+                       deriving (Generic, Show)
+
+instance FromJSON LXDFile where
+instance ToJSON LXDFile where
 
 lxdFile :: MonadError ASTError m => AST -> m LXDFile
 lxdFile ast = LXDFile <$> onlyOne NoBaseImage ManyBaseImages baseImages
@@ -80,7 +87,10 @@ data Action =
       ChangeDirectory String
     | Copy Source Destination
     | Run Arguments
-    deriving (Show)
+    deriving (Generic, Show)
+
+instance FromJSON Action where
+instance ToJSON Action where
 
 type Destination = String
 type Image = String
@@ -88,7 +98,10 @@ type Source = String
 
 data Arguments = ArgumentsList [String]
                | ArgumentsShell String
-               deriving (Show)
+               deriving (Generic, Show)
+
+instance FromJSON Arguments
+instance ToJSON Arguments
 
 instruction :: InstructionPos -> Instruction
 instruction (InstructionPos i _ _) = i
