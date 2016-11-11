@@ -27,8 +27,10 @@ library
                      , Language.LXDFile.Types
                      , System.LXD.LXDFile
                      , System.LXD.LXDFile.Build
+                     , System.LXD.LXDFile.Launch
                      , System.LXD.LXDFile.Utils.Monad
                      , System.LXD.LXDFile.Utils.Shell
+                     , System.LXD.LXDFile.Utils.String
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , aeson-pretty
@@ -36,6 +38,7 @@ library
                      , directory
                      , either
                      , filepath
+                     , lens
                      , mtl
                      , parsec
                      , split

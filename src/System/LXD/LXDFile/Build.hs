@@ -10,14 +10,10 @@ import Prelude hiding (writeFile)
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, ask)
-import Control.Monad.State (State, evalState, get, put)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy (writeFile)
 import Data.Either.Combinators (rightToMaybe)
-import Data.Foldable (foldlM)
-import Data.List (intercalate)
-import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
 import Data.Text (Text, pack, unpack)
 
@@ -33,30 +29,16 @@ import System.IO (hClose)
 import System.IO.Temp (openTempFile)
 import System.FilePath (takeDirectory)
 
-import Language.LXDFile (LXDFile(..), Action(..), Arguments(..),
-                         Destination, Source)
+import Language.LXDFile (LXDFile(..))
+import System.LXD.LXDFile.ScriptAction (ScriptAction(..), scriptActions,
+                                        argumentsSh, currentDirectorySh, environmentSh, copyDest)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (exec)
-
-data BuildAction = BuildRun (Maybe FilePath) [Arguments]
-                 | BuildChangeDirectory FilePath
-                 | BuildCopy Source Destination
-                 deriving (Show)
 
 data BuildCtx = BuildCtx { lxdfile :: LXDFile
                          , imageName :: String
                          , context :: FilePath
                          , buildContainer :: Text }
-
-bundleActions :: [Action] -> [BuildAction]
-bundleActions actions = reverse $ evalState (foldlM bundleActions' [] actions) Nothing
-  where
-    bundleActions' :: [BuildAction] -> Action -> State (Maybe FilePath) [BuildAction]
-    bundleActions' xs (ChangeDirectory fp) = put (Just fp) >> return (BuildChangeDirectory fp : xs)
-    bundleActions' xs (Copy src dst) = return $ BuildCopy src dst : xs
-    bundleActions' (BuildRun wd args:xs) (Run x) = return $ BuildRun wd (args ++ [x]) : xs
-    bundleActions' xs (Run x) = do r <- BuildRun <$> get <*> pure [x]
-                                   return (r:xs)
 
 build :: (MonadIO m, MonadError String m) => LXDFile -> String -> FilePath -> m ()
 build lxdfile'@LXDFile{..} imageName' context' = do
@@ -68,7 +50,7 @@ build lxdfile'@LXDFile{..} imageName' context' = do
     flip runReaderT ctx $ do
         echo $ "Building " <> pack imageName' <> " in " <> container
 
-        mapM_ buildAction $ bundleActions actions
+        mapM_ runScriptAction $ scriptActions actions
         includeLXDFile
 
         echo $ "Stopping " <> container
@@ -87,8 +69,8 @@ build lxdfile'@LXDFile{..} imageName' context' = do
     selectLaunchName _        x = parseLaunch x
     parseLaunch = (pack <$>) . rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
 
-buildAction :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => BuildAction -> m ()
-buildAction (BuildRun wd cmds) = do
+runScriptAction :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => ScriptAction -> m ()
+runScriptAction (SRun ctx cmd) = do
     script <- makeScript
     lxcExec ["mkdir", "/var/run/lxdfile"]
     lxcFilePush "0700" script "/var/run/lxdfile/setup"
@@ -96,24 +78,20 @@ buildAction (BuildRun wd cmds) = do
     lxcExec ["/var/run/lxdfile/setup"]
     lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
-    replace old new = intercalate new . splitOn old
-
     makeScript = do
         fp <- tmpfile "lxdfile-setup.sh"
         let cmds' = [ return "#!/bin/sh"
-                    , return "set -ex"
-                    ] ++ map ((cdToWd <>) . argumentsToShell) cmds
+                    , return "set -e"
+                    ] ++ map return (currentDirectorySh ctx)
+                      ++ map return (environmentSh ctx) ++ [
+                      return "set -x"
+                    ] ++ map return (argumentsSh cmd)
         output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
         return fp
 
-    cdToWd | Just wd' <- wd = return $ "cd " <> pack wd' <> "\n"
-           | otherwise = mempty
-    argumentsToShell (ArgumentsShell s) = return $ pack s
-    argumentsToShell (ArgumentsList xs) = return . pack . unwords $ map escapeArg xs
-    escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
-
-buildAction (BuildCopy src dst) = do
-    echo $ "COPY " <> pack src <> " " <> pack dst
+runScriptAction (SCopy ctx src dst') = do
+    echo $ "COPY " <> pack src <> " " <> pack dst'
+    let dst = copyDest ctx dst'
     tar <- createTar
     lxcExec ["mkdir", "/var/run/lxdfile"]
     lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
@@ -125,12 +103,12 @@ buildAction (BuildCopy src dst) = do
     lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     createTar = do
-        ctx <- context <$> ask
+        ctxDir <- context <$> ask
         fp <- tmpfile "lxdfile-archive.tar"
-        liftIO $ Tar.create fp ctx [src]
+        liftIO $ Tar.create fp ctxDir [src]
         return fp
 
-buildAction (BuildChangeDirectory _) = return ()
+runScriptAction SNOOP = return ()
 
 includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
 includeLXDFile = do
