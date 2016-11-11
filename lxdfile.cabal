@@ -26,6 +26,7 @@ library
                      , Language.LXDFile.Parser
                      , Language.LXDFile.Types
                      , System.LXD.LXDFile
+                     , System.LXD.LXDFile.Build
                      , System.LXD.LXDFile.Utils.Monad
                      , System.LXD.LXDFile.Utils.Shell
   build-depends:       base >= 4.7 && < 5
