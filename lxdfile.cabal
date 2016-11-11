@@ -18,6 +18,10 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Language.LXDFile
+                     , Language.LXDFile.InitScript
+                     , Language.LXDFile.InitScript.Lexer
+                     , Language.LXDFile.InitScript.Parser
+                     , Language.LXDFile.InitScript.Types
                      , Language.LXDFile.Lexer
                      , Language.LXDFile.Parser
                      , Language.LXDFile.Types
