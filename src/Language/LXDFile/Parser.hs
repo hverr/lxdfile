@@ -30,6 +30,7 @@ instrunction = try cd
            <|> try comment
            <|> try copy
            <|> try description
+           <|> try env
            <|> try from
            <|> try run
            <|> try eolInstruction
