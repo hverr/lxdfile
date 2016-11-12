@@ -1,14 +1,27 @@
+{-# LANGUAGE FlexibleContexts #-}
 module System.LXD.LXDFile.ScriptAction where
 
 import Control.Lens (Lens', lens, (^.), (.~), (%~))
+import Control.Monad.Except (MonadError)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (State, evalState, modify, get)
 
 import Data.Foldable (foldlM)
 import Data.Monoid ((<>))
 import Data.Text (Text, pack)
 
+import Filesystem.Path.CurrentOS (decodeString)
+import Turtle (echo, output, rm)
+import qualified Codec.Archive.Tar as Tar
+
+import System.Directory (getTemporaryDirectory)
+import System.IO (hClose)
+import System.IO.Temp (openTempFile)
+import System.FilePath (takeDirectory)
+
 import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination)
 import System.LXD.LXDFile.Utils.String (replace)
+import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxcExec, lxcFilePush)
 
 data ScriptCtx = ScriptCtx { _currentDirectory :: FilePath
                            , _environment :: [(String, String)] }
@@ -56,3 +69,53 @@ argumentsSh (ArgumentsShell s) = [pack s]
 argumentsSh (ArgumentsList xs) = [pack . unwords $ map escapeArg xs]
   where
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
+
+class HasContext m where
+    askContext :: m FilePath
+
+runScriptAction :: (MonadIO m, MonadError String m, HasContainer m, HasContext m) => ScriptAction -> m ()
+runScriptAction (SRun ctx cmd) = do
+    script <- makeScript
+    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcFilePush "0700" script "/var/run/lxdfile/setup"
+    rm (decodeString script)
+    lxcExec ["/var/run/lxdfile/setup"]
+    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
+  where
+    makeScript = do
+        fp <- tmpfile "lxdfile-setup.sh"
+        let cmds' = [ return "#!/bin/sh"
+                    , return "set -e"
+                    ] ++ map return (currentDirectorySh ctx)
+                      ++ map return (environmentSh ctx) ++ [
+                      return "set -x"
+                    ] ++ map return (argumentsSh cmd)
+        output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
+        return fp
+
+runScriptAction (SCopy ctx src dst') = do
+    echo $ "COPY " <> pack src <> " " <> pack dst'
+    let dst = copyDest ctx dst'
+    tar <- createTar
+    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
+    rm (decodeString tar)
+    lxcExec ["mkdir", "/var/run/lxdfile/archive"]
+    lxcExec ["tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
+    lxcExec ["mkdir", "-p", pack (takeDirectory dst)]
+    lxcExec ["cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
+    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
+  where
+    createTar = do
+        ctxDir <- askContext
+        fp <- tmpfile "lxdfile-archive.tar"
+        liftIO $ Tar.create fp ctxDir [src]
+        return fp
+
+runScriptAction SNOOP = return ()
+
+tmpfile :: MonadIO m => String -> m FilePath
+tmpfile template = do
+    (fp, handle) <- liftIO $ getTemporaryDirectory >>= flip openTempFile template
+    liftIO $ hClose handle
+    return fp

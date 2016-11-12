@@ -23,18 +23,11 @@ import Data.Text (Text, pack, unpack)
 import Text.Parsec (parse, many, noneOf, string)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (Fold(..), fold, echo, output, inproc, rm, format, (%))
-import qualified Codec.Archive.Tar as Tar
+import Turtle (Fold(..), fold, echo, inproc, rm, format, (%))
 import qualified Turtle as R
 
-import System.Directory (getTemporaryDirectory)
-import System.IO (hClose)
-import System.IO.Temp (openTempFile)
-import System.FilePath (takeDirectory)
-
 import Language.LXDFile (LXDFile(..))
-import System.LXD.LXDFile.ScriptAction (ScriptAction(..), scriptActions,
-                                        argumentsSh, currentDirectorySh, environmentSh, copyDest)
+import System.LXD.LXDFile.ScriptAction (HasContext(..), scriptActions, runScriptAction, tmpfile)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
 
@@ -72,47 +65,6 @@ build lxdfile'@LXDFile{..} imageName' context' = do
     selectLaunchName _        x = parseLaunch x
     parseLaunch = (pack <$>) . rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
 
-runScriptAction :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => ScriptAction -> m ()
-runScriptAction (SRun ctx cmd) = do
-    script <- makeScript
-    lxcExec ["mkdir", "/var/run/lxdfile"]
-    lxcFilePush "0700" script "/var/run/lxdfile/setup"
-    rm (decodeString script)
-    lxcExec ["/var/run/lxdfile/setup"]
-    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
-  where
-    makeScript = do
-        fp <- tmpfile "lxdfile-setup.sh"
-        let cmds' = [ return "#!/bin/sh"
-                    , return "set -e"
-                    ] ++ map return (currentDirectorySh ctx)
-                      ++ map return (environmentSh ctx) ++ [
-                      return "set -x"
-                    ] ++ map return (argumentsSh cmd)
-        output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
-        return fp
-
-runScriptAction (SCopy ctx src dst') = do
-    echo $ "COPY " <> pack src <> " " <> pack dst'
-    let dst = copyDest ctx dst'
-    tar <- createTar
-    lxcExec ["mkdir", "/var/run/lxdfile"]
-    lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
-    rm (decodeString tar)
-    lxcExec ["mkdir", "/var/run/lxdfile/archive"]
-    lxcExec ["tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
-    lxcExec ["mkdir", "-p", pack (takeDirectory dst)]
-    lxcExec ["cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
-    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
-  where
-    createTar = do
-        ctxDir <- context <$> ask
-        fp <- tmpfile "lxdfile-archive.tar"
-        liftIO $ Tar.create fp ctxDir [src]
-        return fp
-
-runScriptAction SNOOP = return ()
-
 includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
 includeLXDFile = do
     file <- tmpfile "lxdfile-metadata-lxdfile"
@@ -121,11 +73,8 @@ includeLXDFile = do
     lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
     rm (decodeString file)
 
-tmpfile :: MonadIO m => String -> m FilePath
-tmpfile template = do
-    (fp, handle) <- liftIO $ getTemporaryDirectory >>= flip openTempFile template
-    liftIO $ hClose handle
-    return fp
-
 instance MonadReader BuildCtx m => HasContainer m where
     askContainer = buildContainer <$> ask
+
+instance MonadReader BuildCtx m => HasContext m where
+    askContext = context <$> ask
