@@ -23,7 +23,7 @@ import Data.Text (Text, pack, unpack)
 import Text.Parsec (parse, many, noneOf, string)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (Fold(..), fold, echo, inproc, rm, format, (%))
+import Turtle (Fold(..), fold, echo, inproc, rm, format, sleep, (%))
 import qualified Turtle as R
 
 import Language.LXDFile (LXDFile(..))
@@ -45,6 +45,7 @@ build lxdfile'@LXDFile{..} imageName' context' = do
                        , buildContainer = container }
     flip runReaderT ctx $ do
         echo $ "Building " <> pack imageName' <> " in " <> container
+        sleep 5.0
 
         mapM_ runScriptAction $ scriptActions actions
         includeLXDFile

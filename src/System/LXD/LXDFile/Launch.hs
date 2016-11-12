@@ -19,7 +19,7 @@ import Data.Monoid ((<>))
 import Data.Text (Text, pack)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (echo, rm)
+import Turtle (echo, rm, sleep)
 
 import Language.LXDFile.InitScript (InitScript(..))
 import System.LXD.LXDFile.ScriptAction (HasContext(..), scriptActions, runScriptAction, tmpfile)
@@ -35,6 +35,7 @@ launch image' container' ctx' scripts' =
     let ctx = LaunchCtx scripts' (pack image') (pack container') ctx' in
     flip runReaderT ctx $ do
         launchContainer
+        sleep 4.0
         ask >>= mapM_ runInitScript . initScripts
         includeInitScripts
         echo $ "Successfully initialized " <> pack container'
