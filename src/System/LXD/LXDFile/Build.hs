@@ -1,5 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Build LXD images using lxdfiles.
 module System.LXD.LXDFile.Build (
   build
@@ -33,7 +36,7 @@ import Language.LXDFile (LXDFile(..))
 import System.LXD.LXDFile.ScriptAction (ScriptAction(..), scriptActions,
                                         argumentsSh, currentDirectorySh, environmentSh, copyDest)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
-import System.LXD.LXDFile.Utils.Shell (exec)
+import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
 
 data BuildCtx = BuildCtx { lxdfile :: LXDFile
                          , imageName :: String
@@ -118,21 +121,11 @@ includeLXDFile = do
     lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
     rm (decodeString file)
 
-lxc :: (MonadIO m, MonadError String m) => [Text] -> m ()
-lxc args = exec "lxc" args Nothing
-
-lxcExec :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => [Text] -> m ()
-lxcExec args = do
-    c <- buildContainer <$> ask
-    lxc $ ["exec", "--mode=non-interactive", c, "--"] ++ args
-
-lxcFilePush :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => String -> FilePath -> FilePath -> m ()
-lxcFilePush mode src dst = do
-    c <- buildContainer <$> ask
-    lxc ["file", "push", "--mode=" <> pack mode, pack src, c <> "/" <> pack dst]
-
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do
     (fp, handle) <- liftIO $ getTemporaryDirectory >>= flip openTempFile template
     liftIO $ hClose handle
     return fp
+
+instance MonadReader BuildCtx m => HasContainer m where
+    askContainer = buildContainer <$> ask
