@@ -105,7 +105,7 @@ data Arguments = ArgumentsList [String]
 
 instance Show Arguments where
     show (ArgumentsList x) = show x
-    show (ArgumentsShell x) = show x
+    show (ArgumentsShell x) = x
 
 instance FromJSON Arguments
 instance ToJSON Arguments
