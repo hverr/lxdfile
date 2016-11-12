@@ -101,7 +101,11 @@ type Value = String
 
 data Arguments = ArgumentsList [String]
                | ArgumentsShell String
-               deriving (Generic, Show)
+               deriving (Generic)
+
+instance Show Arguments where
+    show (ArgumentsList x) = show x
+    show (ArgumentsShell x) = show x
 
 instance FromJSON Arguments
 instance ToJSON Arguments

@@ -19,9 +19,10 @@ import System.IO (hClose)
 import System.IO.Temp (openTempFile)
 import System.FilePath (takeDirectory)
 
-import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination)
+import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination, Key, Value)
 import System.LXD.LXDFile.Utils.String (replace)
 import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Utils.Text (showT)
 
 data ScriptCtx = ScriptCtx { _currentDirectory :: FilePath
                            , _environment :: [(String, String)] }
@@ -37,7 +38,8 @@ defaultScriptCtx = ScriptCtx "/" []
 
 data ScriptAction = SRun ScriptCtx Arguments
                   | SCopy ScriptCtx Source Destination
-                  | SNOOP
+                  | SChangeDirectory FilePath
+                  | SEnvironment Key Value
 
 scriptActions :: [Action] -> [ScriptAction]
 scriptActions actions = reverse $ evalState (foldlM f [] actions) defaultScriptCtx
@@ -46,11 +48,11 @@ scriptActions actions = reverse $ evalState (foldlM f [] actions) defaultScriptC
 scriptAction :: Action -> State ScriptCtx ScriptAction
 scriptAction (ChangeDirectory fp) = do
     modify $ \s -> (currentDirectory .~ fp) s
-    return SNOOP
+    return $ SChangeDirectory fp
 scriptAction (Copy src dst) = SCopy <$> get <*> pure src <*> pure dst
 scriptAction (Environment key value) = do
     modify $ \s -> (environment %~ \e -> e ++ [(key, value)]) s
-    return SNOOP
+    return $ SEnvironment key value
 scriptAction (Run x) = SRun <$> get <*> pure x
 
 currentDirectorySh :: ScriptCtx -> [Text]
@@ -75,6 +77,7 @@ class HasContext m where
 
 runScriptAction :: (MonadIO m, MonadError String m, HasContainer m, HasContext m) => ScriptAction -> m ()
 runScriptAction (SRun ctx cmd) = do
+    echo $ "RUN " <> showT cmd
     script <- makeScript
     lxcExec ["mkdir", "/var/run/lxdfile"]
     lxcFilePush "0700" script "/var/run/lxdfile/setup"
@@ -112,7 +115,8 @@ runScriptAction (SCopy ctx src dst') = do
         liftIO $ Tar.create fp ctxDir [src]
         return fp
 
-runScriptAction SNOOP = return ()
+runScriptAction (SChangeDirectory fp) = echo $ "CD " <> pack fp
+runScriptAction (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
 
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do
