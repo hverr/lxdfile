@@ -28,6 +28,7 @@ library
                      , System.LXD.LXDFile
                      , System.LXD.LXDFile.Build
                      , System.LXD.LXDFile.Launch
+                     , System.LXD.LXDFile.ScriptAction
                      , System.LXD.LXDFile.Utils.Monad
                      , System.LXD.LXDFile.Utils.Shell
                      , System.LXD.LXDFile.Utils.String

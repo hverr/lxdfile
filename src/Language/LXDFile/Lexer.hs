@@ -30,6 +30,7 @@ reservedNames :: [String]
 reservedNames = [ "CD"
                 , "COPY"
                 , "DESCRIPTION"
+                , "ENV"
                 , "FROM"
                 , "RUN"
                 , "VOLUME"

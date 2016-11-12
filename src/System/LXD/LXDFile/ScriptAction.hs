@@ -1,6 +1,6 @@
 module System.LXD.LXDFile.ScriptAction where
 
-import Control.Lens (Lens', lens, (^.), (.~))
+import Control.Lens (Lens', lens, (^.), (.~), (%~))
 import Control.Monad.State (State, evalState, modify, get)
 
 import Data.Foldable (foldlM)
@@ -35,6 +35,9 @@ scriptAction (ChangeDirectory fp) = do
     modify $ \s -> (currentDirectory .~ fp) s
     return SNOOP
 scriptAction (Copy src dst) = SCopy <$> get <*> pure src <*> pure dst
+scriptAction (Environment key value) = do
+    modify $ \s -> (environment %~ \e -> e ++ [(key, value)]) s
+    return SNOOP
 scriptAction (Run x) = SRun <$> get <*> pure x
 
 currentDirectorySh :: ScriptCtx -> [Text]

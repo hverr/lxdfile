@@ -86,6 +86,7 @@ data Instruction =
 data Action =
       ChangeDirectory String
     | Copy Source Destination
+    | Environment Key Value
     | Run Arguments
     deriving (Generic, Show)
 
@@ -95,6 +96,8 @@ instance ToJSON Action where
 type Destination = String
 type Image = String
 type Source = String
+type Key = String
+type Value = String
 
 data Arguments = ArgumentsList [String]
                | ArgumentsShell String
