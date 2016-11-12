@@ -27,6 +27,7 @@ instruction :: Parser Instruction
 instruction = try cd
           <|> try comment
           <|> try copy
+          <|> try env
           <|> try run
           <|> try eolInstruction
 
