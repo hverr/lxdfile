@@ -10,6 +10,8 @@ module Language.LXDFile.InitScript.Types (
 , InitScriptError(..)
 ) where
 
+import Data.Maybe (mapMaybe)
+
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 
@@ -27,7 +29,13 @@ data InitScriptError = ParseError ParseError
                      deriving (Show)
 
 initScript :: Monad m => AST -> m InitScript
-initScript = undefined
+initScript ast = InitScript <$> allActions
+  where
+    instructions = map instruction ast
+
+    allActions = pure $ mapMaybe action' instructions
+    action' (Action x) = Just x
+    action' _          = Nothing
 
 type AST = [InstructionPos]
 
@@ -38,3 +46,6 @@ data Instruction =
     | Comment String
     | EOL
     deriving (Show)
+
+instruction :: InstructionPos -> Instruction
+instruction (InstructionPos i _ _) = i
