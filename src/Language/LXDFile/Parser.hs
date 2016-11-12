@@ -33,6 +33,7 @@ instrunction = try cd
            <|> try env
            <|> try from
            <|> try run
+           <|> try volume
            <|> try eolInstruction
 
 comment :: Parser Instruction
