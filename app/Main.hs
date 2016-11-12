@@ -9,11 +9,12 @@ import Options.Applicative
 
 import System.Exit (exitFailure)
 
-import Language.LXDFile (parseFile)
+import qualified Language.LXDFile as LXDFile
+import qualified Language.LXDFile.InitScript as InitScript
 import qualified System.LXD.LXDFile as LXDFile
 
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
-             | LaunchCommand String [FilePath]       -- ^ Image, list of init scripts
+             | LaunchCommand String String FilePath [FilePath]       -- ^ Image, list of init scripts
 
 newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
                  deriving (Functor, Applicative, Monad, MonadIO, MonadError String)
@@ -31,6 +32,8 @@ launchCmd =
     command "launch" $ info (helper <*> cmd') $ progDesc "launch an LXD image with init scripts"
   where
     cmd' = LaunchCommand <$> strArgument (metavar "IMAGE" <> help "name of an LXD iamge")
+                         <*> strArgument (metavar "CONTAINER" <> help "name of the created LXD container")
+                         <*> strArgument (metavar "DIR" <> value "." <> help "base directory for init scripts")
                          <*> many (strOption $ short 'i' <> metavar "SCRIPT" <> help "init script to execute after launch")
 
 subcommand :: Parser Command
@@ -42,7 +45,7 @@ main =
   where
     opts = info (helper <*> subcommand) $ progDesc "Automatically build and manage LXD images and containers."
     run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
-    run (LaunchCommand image inits) = cmd $ launch image inits
+    run (LaunchCommand image container ctx inits) = cmd $ launch image container ctx inits
 
 cmd :: CmdT IO () -> IO ()
 cmd action' = do
@@ -54,11 +57,16 @@ cmd action' = do
 
 build :: (MonadIO m, MonadError String m) => FilePath -> String -> FilePath -> m ()
 build fp name dir = do
-    lxdfile <- liftIO (parseFile fp) >>= orErr "parse error"
+    lxdfile <- liftIO (LXDFile.parseFile fp) >>= orErr "parse error"
     LXDFile.build lxdfile name dir
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
 
-launch :: (MonadIO m, MonadError String m) => String -> [FilePath] ->  m ()
-launch = undefined
+launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> [FilePath] ->  m ()
+launch image container ctx fps= do
+    scripts <- liftIO (sequence <$> mapM InitScript.parseFile fps) >>= orErr "parse error"
+    LXDFile.launch image container ctx scripts
+  where
+    orErr pref = either (showErr pref) return
+    showErr pref e = throwError $ pref ++ ": " ++ show e

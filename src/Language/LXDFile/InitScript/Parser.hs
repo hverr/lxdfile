@@ -44,6 +44,14 @@ copy = do
     dst <- untilEol
     return $ Action $ Copy src dst
 
+env :: Parser Instruction
+env = do
+    reserved "ENV"
+    key <- many (noneOf "= \t")
+    whiteSpace
+    value <- untilEol
+    return $ Action $ Environment key value
+
 eolInstruction :: Parser Instruction
 eolInstruction = eol *> pure EOL
 

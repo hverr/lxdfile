@@ -24,6 +24,7 @@ instance FromJSON InitScript where
 instance ToJSON InitScript where
 
 data InitScriptError = ParseError ParseError
+                     deriving (Show)
 
 initScript :: Monad m => AST -> m InitScript
 initScript = undefined
