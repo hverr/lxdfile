@@ -87,6 +87,9 @@ ast = many $ do
     optional eol
     return $ InstructionPos i (sourceName pos) (sourceLine pos)
 
+bool :: Parser Bool
+bool = (string "TRUE" *> pure True) <|> (string "FALSE" *> pure False)
+
 untilEol :: Parser String
 untilEol = many (noneOf "\n")
 

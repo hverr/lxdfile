@@ -30,5 +30,6 @@ reservedNames :: [String]
 reservedNames = [ "CD"
                 , "COPY"
                 , "ENV"
+                , "ONUPDATE"
                 , "RUN"
                 ]
