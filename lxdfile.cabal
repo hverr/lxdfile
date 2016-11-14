@@ -57,7 +57,7 @@ library
 executable lxdfile
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -Werror
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -static -optl-static -optl-pthread -Wall -Werror
   build-depends:       base
                      , lxdfile
                      , mtl
