@@ -25,6 +25,7 @@ library
                      , Language.LXDFile.Lexer
                      , Language.LXDFile.Parser
                      , Language.LXDFile.Types
+                     , Language.LXDFile.Version
                      , System.LXD.LXDFile
                      , System.LXD.LXDFile.Build
                      , System.LXD.LXDFile.Launch
@@ -33,6 +34,7 @@ library
                      , System.LXD.LXDFile.Utils.Shell
                      , System.LXD.LXDFile.Utils.String
                      , System.LXD.LXDFile.Utils.Text
+  other-modules:       Paths_lxdfile
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , aeson-pretty

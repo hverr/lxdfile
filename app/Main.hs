@@ -5,16 +5,20 @@ module Main where
 import Control.Monad.Except (ExceptT, MonadError, runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
+import Data.Version (showVersion)
+
 import Options.Applicative
 
 import System.Exit (exitFailure)
 
+import Language.LXDFile.Version (version)
 import qualified Language.LXDFile as LXDFile
 import qualified Language.LXDFile.InitScript as InitScript
 import qualified System.LXD.LXDFile as LXDFile
 
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
              | LaunchCommand String String FilePath [FilePath]       -- ^ Image, list of init scripts
+             | VersionCommand
 
 newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
                  deriving (Functor, Applicative, Monad, MonadIO, MonadError String)
@@ -36,8 +40,14 @@ launchCmd =
                          <*> strArgument (metavar "DIR" <> value "." <> help "base directory for init scripts")
                          <*> many (strOption $ short 'i' <> metavar "SCRIPT" <> help "init script to execute after launch")
 
+versionCmd :: Mod CommandFields Command
+versionCmd =
+    command "version" $ info (helper <*> cmd') $ progDesc "show the program version"
+  where
+    cmd' = pure VersionCommand
+
 subcommand :: Parser Command
-subcommand = subparser (buildCmd <> launchCmd)
+subcommand = subparser (buildCmd <> launchCmd <> versionCmd)
 
 main :: IO ()
 main =
@@ -46,6 +56,7 @@ main =
     opts = info (helper <*> subcommand) $ progDesc "Automatically build and manage LXD images and containers."
     run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
     run (LaunchCommand image container ctx inits) = cmd $ launch image container ctx inits
+    run VersionCommand = putStrLn $ showVersion version
 
 cmd :: CmdT IO () -> IO ()
 cmd action' = do
