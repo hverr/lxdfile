@@ -4,7 +4,8 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Launch LXD images with init scripts
 module System.LXD.LXDFile.Launch (
-  launch
+  Profile
+, launch
 ) where
 
 import Prelude hiding (writeFile)
@@ -25,14 +26,17 @@ import Language.LXDFile.InitScript (InitScript(..))
 import System.LXD.LXDFile.ScriptAction (HasContext(..), scriptActions, runScriptAction, tmpfile)
 import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
 
+type Profile = Maybe String
+
 data LaunchCtx = LaunchCtx { initScripts :: [InitScript]
                            , image :: Text
+                           , profile :: Profile
                            , container :: Text
                            , context :: FilePath }
 
-launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> [InitScript] -> m ()
-launch image' container' ctx' scripts' =
-    let ctx = LaunchCtx scripts' (pack image') (pack container') ctx' in
+launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> Profile -> [InitScript] -> m ()
+launch image' container' ctx' profile' scripts' =
+    let ctx = LaunchCtx scripts' (pack image') profile' (pack container') ctx' in
     flip runReaderT ctx $ do
         launchContainer
         sleep 4.0
@@ -44,8 +48,10 @@ launchContainer :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => 
 launchContainer = do
     i <- image <$> ask
     c <- container <$> ask
+    p <- profile <$> ask
     echo $ "Launching " <> i <> " as " <> c
-    lxc ["launch", i, c]
+    case p of Nothing -> lxc ["launch", i, c]
+              Just p' -> lxc ["launch", i, c, "--profile", pack p']
 
 runInitScript :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => InitScript -> m ()
 runInitScript s = mapM_ runScriptAction $ scriptActions (actions s)

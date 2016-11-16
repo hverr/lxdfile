@@ -12,12 +12,13 @@ import Options.Applicative
 import System.Exit (exitFailure)
 
 import Language.LXDFile.Version (version)
+import System.LXD.LXDFile.Launch (Profile)
 import qualified Language.LXDFile as LXDFile
 import qualified Language.LXDFile.InitScript as InitScript
 import qualified System.LXD.LXDFile as LXDFile
 
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
-             | LaunchCommand String String FilePath [FilePath]       -- ^ Image, list of init scripts
+             | LaunchCommand String String FilePath Profile [FilePath]       -- ^ Image, container, context, profile, list of init scripts
              | VersionCommand
 
 newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
@@ -38,6 +39,7 @@ launchCmd =
     cmd' = LaunchCommand <$> strArgument (metavar "IMAGE" <> help "name of an LXD iamge")
                          <*> strArgument (metavar "CONTAINER" <> help "name of the created LXD container")
                          <*> strArgument (metavar "DIR" <> value "." <> help "base directory for init scripts")
+                         <*> option (Just <$> str) (short 'p' <> long "profile" <> value Nothing <> help "LXD profile for the launched container")
                          <*> many (strOption $ short 'i' <> metavar "SCRIPT" <> help "init script to execute after launch")
 
 versionCmd :: Mod CommandFields Command
@@ -55,7 +57,7 @@ main =
   where
     opts = info (helper <*> subcommand) $ progDesc "Automatically build and manage LXD images and containers."
     run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
-    run (LaunchCommand image container ctx inits) = cmd $ launch image container ctx inits
+    run (LaunchCommand image container ctx profile inits) = cmd $ launch image container ctx profile inits
     run VersionCommand = putStrLn $ showVersion version
 
 cmd :: CmdT IO () -> IO ()
@@ -74,10 +76,10 @@ build fp name dir = do
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
 
-launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> [FilePath] ->  m ()
-launch image container ctx fps= do
+launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> Profile -> [FilePath] ->  m ()
+launch image container ctx profile fps = do
     scripts <- liftIO (sequence <$> mapM InitScript.parseFile fps) >>= orErr "parse error"
-    LXDFile.launch image container ctx scripts
+    LXDFile.launch image container ctx profile scripts
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
