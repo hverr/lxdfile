@@ -27,7 +27,7 @@ import Turtle (Fold(..), fold, echo, inproc, rm, format, sleep, (%))
 import qualified Turtle as R
 
 import Language.LXDFile (LXDFile(..))
-import System.LXD.LXDFile.ScriptAction (HasContext(..), scriptActions, runScriptAction, tmpfile)
+import System.LXD.LXDFile.ScriptAction (scriptActions, runScriptAction, tmpfile)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
 
@@ -47,7 +47,7 @@ build lxdfile'@LXDFile{..} imageName' context' = do
         echo $ "Building " <> pack imageName' <> " in " <> container
         sleep 5.0
 
-        mapM_ runScriptAction $ scriptActions actions
+        mapM_ (runScriptAction context') $ scriptActions actions
         includeLXDFile
 
         echo $ "Stopping " <> container
@@ -76,6 +76,3 @@ includeLXDFile = do
 
 instance MonadReader BuildCtx m => HasContainer m where
     askContainer = buildContainer <$> ask
-
-instance MonadReader BuildCtx m => HasContext m where
-    askContext = context <$> ask

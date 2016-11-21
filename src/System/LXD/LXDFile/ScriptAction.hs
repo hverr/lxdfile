@@ -72,11 +72,8 @@ argumentsSh (ArgumentsList xs) = [pack . unwords $ map escapeArg xs]
   where
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
-class HasContext m where
-    askContext :: m FilePath
-
-runScriptAction :: (MonadIO m, MonadError String m, HasContainer m, HasContext m) => ScriptAction -> m ()
-runScriptAction (SRun ctx cmd) = do
+runScriptAction :: (MonadIO m, MonadError String m, HasContainer m) => FilePath -> ScriptAction -> m ()
+runScriptAction _ (SRun ctx cmd) = do
     echo $ "RUN " <> showT cmd
     script <- makeScript
     lxcExec ["mkdir", "/var/run/lxdfile"]
@@ -96,7 +93,7 @@ runScriptAction (SRun ctx cmd) = do
         output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
         return fp
 
-runScriptAction (SCopy ctx src dst') = do
+runScriptAction ctxDir (SCopy ctx src dst') = do
     echo $ "COPY " <> pack src <> " " <> pack dst'
     let dst = copyDest ctx dst'
     tar <- createTar
@@ -110,13 +107,12 @@ runScriptAction (SCopy ctx src dst') = do
     lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     createTar = do
-        ctxDir <- askContext
         fp <- tmpfile "lxdfile-archive.tar"
         liftIO $ Tar.create fp ctxDir [src]
         return fp
 
-runScriptAction (SChangeDirectory fp) = echo $ "CD " <> pack fp
-runScriptAction (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
+runScriptAction _ (SChangeDirectory fp) = echo $ "CD " <> pack fp
+runScriptAction _ (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
 
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do

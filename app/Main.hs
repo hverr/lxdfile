@@ -12,13 +12,15 @@ import Options.Applicative
 import System.Exit (exitFailure)
 
 import Language.LXDFile.Version (version)
-import System.LXD.LXDFile.Launch (Profile)
+import System.LXD.LXDFile.Launch (Profile, InitScriptContext(..))
 import qualified Language.LXDFile as LXDFile
 import qualified Language.LXDFile.InitScript as InitScript
 import qualified System.LXD.LXDFile as LXDFile
 
+data InitScriptArg = InitScriptArg FilePath FilePath -- ^ Init script, context
+
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
-             | LaunchCommand String String FilePath Profile [FilePath]       -- ^ Image, container, context, profile, list of init scripts
+             | LaunchCommand String String Profile [InitScriptArg]       -- ^ Image, container, context, profile, list of init scripts
              | VersionCommand
 
 newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
@@ -38,9 +40,16 @@ launchCmd =
   where
     cmd' = LaunchCommand <$> strArgument (metavar "IMAGE" <> help "name of an LXD iamge")
                          <*> strArgument (metavar "CONTAINER" <> help "name of the created LXD container")
-                         <*> strArgument (metavar "DIR" <> value "." <> help "base directory for init scripts")
                          <*> option (Just <$> str) (short 'p' <> long "profile" <> value Nothing <> help "LXD profile for the launched container")
-                         <*> many (strOption $ short 'i' <> metavar "SCRIPT" <> help "init script to execute after launch")
+                         <*> many initScriptArg
+
+initScriptArg :: Parser InitScriptArg
+initScriptArg = parse <$> strOption (short 'i' <> metavar "SCRIPT[:CTX]" <> help "init script with optional context")
+  where
+    parse x = case break (== ':') x of
+        (a, []) -> InitScriptArg a "."
+        (a, [_]) -> InitScriptArg a "."
+        (a, _:b) -> InitScriptArg a b
 
 versionCmd :: Mod CommandFields Command
 versionCmd =
@@ -57,7 +66,7 @@ main =
   where
     opts = info (helper <*> subcommand) $ progDesc "Automatically build and manage LXD images and containers."
     run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
-    run (LaunchCommand image container ctx profile inits) = cmd $ launch image container ctx profile inits
+    run (LaunchCommand image container profile inits) = cmd $ launch image container profile inits
     run VersionCommand = putStrLn $ showVersion version
 
 cmd :: CmdT IO () -> IO ()
@@ -76,10 +85,13 @@ build fp name dir = do
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
 
-launch :: (MonadIO m, MonadError String m) => String -> String -> FilePath -> Profile -> [FilePath] ->  m ()
-launch image container ctx profile fps = do
-    scripts <- liftIO (sequence <$> mapM InitScript.parseFile fps) >>= orErr "parse error"
-    LXDFile.launch image container ctx profile scripts
+launch :: (MonadIO m, MonadError String m) => String -> String -> Profile -> [InitScriptArg] ->  m ()
+launch image container profile isas = do
+    scripts <- liftIO (sequence <$> mapM parse isas) >>= orErr "parse error"
+    LXDFile.launch image container profile scripts
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
+    parse (InitScriptArg fp ctx) = do
+        v <- InitScript.parseFile fp
+        return $ InitScriptContext <$> v <*> pure ctx
