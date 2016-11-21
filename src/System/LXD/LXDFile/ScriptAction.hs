@@ -5,6 +5,7 @@ import Control.Lens (Lens', lens, (^.), (.~), (%~))
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (State, evalState, modify, get)
+import Control.Monad.Reader (MonadReader)
 
 import Data.Foldable (foldlM)
 import Data.Monoid ((<>))
@@ -21,7 +22,7 @@ import System.FilePath (takeDirectory)
 
 import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination, Key, Value)
 import System.LXD.LXDFile.Utils.String (replace)
-import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Utils.Shell (Container, lxcExec, lxcFilePush)
 import System.LXD.LXDFile.Utils.Text (showT)
 
 data ScriptCtx = ScriptCtx { _currentDirectory :: FilePath
@@ -72,11 +73,8 @@ argumentsSh (ArgumentsList xs) = [pack . unwords $ map escapeArg xs]
   where
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
-class HasContext m where
-    askContext :: m FilePath
-
-runScriptAction :: (MonadIO m, MonadError String m, HasContainer m, HasContext m) => ScriptAction -> m ()
-runScriptAction (SRun ctx cmd) = do
+runScriptAction :: (MonadIO m, MonadError String m, MonadReader Container m) => FilePath -> ScriptAction -> m ()
+runScriptAction _ (SRun ctx cmd) = do
     echo $ "RUN " <> showT cmd
     script <- makeScript
     lxcExec ["mkdir", "/var/run/lxdfile"]
@@ -96,7 +94,7 @@ runScriptAction (SRun ctx cmd) = do
         output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
         return fp
 
-runScriptAction (SCopy ctx src dst') = do
+runScriptAction ctxDir (SCopy ctx src dst') = do
     echo $ "COPY " <> pack src <> " " <> pack dst'
     let dst = copyDest ctx dst'
     tar <- createTar
@@ -110,13 +108,12 @@ runScriptAction (SCopy ctx src dst') = do
     lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     createTar = do
-        ctxDir <- askContext
         fp <- tmpfile "lxdfile-archive.tar"
         liftIO $ Tar.create fp ctxDir [src]
         return fp
 
-runScriptAction (SChangeDirectory fp) = echo $ "CD " <> pack fp
-runScriptAction (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
+runScriptAction _ (SChangeDirectory fp) = echo $ "CD " <> pack fp
+runScriptAction _ (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
 
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do

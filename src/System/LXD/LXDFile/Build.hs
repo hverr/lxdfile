@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Build LXD images using lxdfiles.
 module System.LXD.LXDFile.Build (
   build
@@ -12,7 +10,7 @@ import Prelude hiding (writeFile)
 
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (MonadReader, runReaderT, ask)
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy (writeFile)
@@ -27,9 +25,9 @@ import Turtle (Fold(..), fold, echo, inproc, rm, format, sleep, (%))
 import qualified Turtle as R
 
 import Language.LXDFile (LXDFile(..))
-import System.LXD.LXDFile.ScriptAction (HasContext(..), scriptActions, runScriptAction, tmpfile)
+import System.LXD.LXDFile.ScriptAction (scriptActions, runScriptAction, tmpfile)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
-import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
 
 data BuildCtx = BuildCtx { lxdfile :: LXDFile
                          , imageName :: String
@@ -47,7 +45,7 @@ build lxdfile'@LXDFile{..} imageName' context' = do
         echo $ "Building " <> pack imageName' <> " in " <> container
         sleep 5.0
 
-        mapM_ runScriptAction $ scriptActions actions
+        mapM_ (flip runReaderT container . runScriptAction context') $ scriptActions actions
         includeLXDFile
 
         echo $ "Stopping " <> container
@@ -70,12 +68,9 @@ includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m 
 includeLXDFile = do
     file <- tmpfile "lxdfile-metadata-lxdfile"
     ask >>= liftIO . writeFile file . encodePretty . lxdfile
-    lxcExec ["mkdir", "-p", "/etc/lxdfile"]
-    lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
+    run $ lxcExec ["mkdir", "-p", "/etc/lxdfile"]
+    run $ lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
     rm (decodeString file)
 
-instance MonadReader BuildCtx m => HasContainer m where
-    askContainer = buildContainer <$> ask
-
-instance MonadReader BuildCtx m => HasContext m where
-    askContext = context <$> ask
+run :: MonadReader BuildCtx m => ReaderT Container m a -> m a
+run x = buildContainer <$> ask >>= runReaderT x
