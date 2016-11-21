@@ -11,6 +11,7 @@ import Options.Applicative
 
 import System.Exit (exitFailure)
 
+import Language.LXDFile.InitScript.Types (InitScriptError)
 import Language.LXDFile.Version (version)
 import System.LXD.LXDFile.Launch (Profile, InitScriptContext(..))
 import qualified Language.LXDFile as LXDFile
@@ -21,6 +22,7 @@ data InitScriptArg = InitScriptArg FilePath FilePath -- ^ Init script, context
 
 data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
              | LaunchCommand String String Profile [InitScriptArg]       -- ^ Image, container, context, profile, list of init scripts
+             | InjectCommand String [InitScriptArg] -- ^ Container, init scripts
              | VersionCommand
 
 newtype CmdT m a = CmdT { runCmdT :: ExceptT String m a }
@@ -43,6 +45,13 @@ launchCmd =
                          <*> option (Just <$> str) (short 'p' <> long "profile" <> value Nothing <> help "LXD profile for the launched container")
                          <*> many initScriptArg
 
+injectCmd :: Mod CommandFields Command
+injectCmd =
+    command "inject" $ info (helper <*> cmd') $ progDesc "inject init scripts in running containers"
+  where
+    cmd' = InjectCommand <$> strArgument (metavar "CONTAINER" <> help "name of the LXD container")
+                         <*> many initScriptArg
+
 initScriptArg :: Parser InitScriptArg
 initScriptArg = parse <$> strOption (short 'i' <> metavar "SCRIPT[:CTX]" <> help "init script with optional context")
   where
@@ -58,16 +67,13 @@ versionCmd =
     cmd' = pure VersionCommand
 
 subcommand :: Parser Command
-subcommand = subparser (buildCmd <> launchCmd <> versionCmd)
+subcommand = subparser (buildCmd <> launchCmd <> injectCmd <> versionCmd)
 
 main :: IO ()
 main =
-    execParser opts >>= run
+    execParser opts >>= cmd . run
   where
     opts = info (helper <*> subcommand) $ progDesc "Automatically build and manage LXD images and containers."
-    run (BuildCommand lxdfile tag base) = cmd $ build lxdfile tag base
-    run (LaunchCommand image container profile inits) = cmd $ launch image container profile inits
-    run VersionCommand = putStrLn $ showVersion version
 
 cmd :: CmdT IO () -> IO ()
 cmd action' = do
@@ -77,21 +83,31 @@ cmd action' = do
                 putStrLn $ "error: " ++ e
                 exitFailure
 
-build :: (MonadIO m, MonadError String m) => FilePath -> String -> FilePath -> m ()
-build fp name dir = do
+run :: (MonadIO m, MonadError String m) => Command -> m ()
+run (BuildCommand fp name dir) = do
     lxdfile <- liftIO (LXDFile.parseFile fp) >>= orErr "parse error"
     LXDFile.build lxdfile name dir
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
 
-launch :: (MonadIO m, MonadError String m) => String -> String -> Profile -> [InitScriptArg] ->  m ()
-launch image container profile isas = do
-    scripts <- liftIO (sequence <$> mapM parse isas) >>= orErr "parse error"
+run (LaunchCommand image container profile isas) = do
+    scripts <- liftIO (sequence <$> mapM parseInitScriptContext isas) >>= orErr "parse error"
     LXDFile.launch image container profile scripts
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
-    parse (InitScriptArg fp ctx) = do
-        v <- InitScript.parseFile fp
-        return $ InitScriptContext <$> v <*> pure ctx
+
+run (InjectCommand name isas) = do
+    scripts <- liftIO (sequence <$> mapM parseInitScriptContext isas) >>= orErr "parse error"
+    LXDFile.inject name scripts
+  where
+    orErr pref = either (showErr pref) return
+    showErr pref e = throwError $ pref ++ ": " ++ show e
+
+run VersionCommand = liftIO . putStrLn $ showVersion version
+
+parseInitScriptContext :: InitScriptArg -> IO (Either InitScriptError InitScriptContext)
+parseInitScriptContext (InitScriptArg fp ctx) = do
+    v <- InitScript.parseFile fp
+    return $ InitScriptContext <$> v <*> pure ctx

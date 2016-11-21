@@ -13,7 +13,7 @@ import Prelude hiding (writeFile)
 
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (MonadReader, runReaderT, ask)
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy (writeFile)
@@ -23,14 +23,11 @@ import Data.Text (Text, pack)
 import Filesystem.Path.CurrentOS (decodeString)
 import Turtle (echo, rm, sleep)
 
-import Language.LXDFile.InitScript (InitScript(..))
-import System.LXD.LXDFile.ScriptAction (scriptActions, runScriptAction, tmpfile)
-import System.LXD.LXDFile.Utils.Shell (HasContainer(..), lxc, lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Inject (InitScriptContext(..), runInitScript)
+import System.LXD.LXDFile.ScriptAction (tmpfile)
+import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
 
 type Profile = Maybe String
-
-data InitScriptContext = InitScriptContext { initScript :: InitScript
-                                           , context :: FilePath }
 
 data LaunchCtx = LaunchCtx { initScripts :: [InitScriptContext]
                            , image :: Text
@@ -41,9 +38,10 @@ launch :: (MonadIO m, MonadError String m) => String -> String -> Profile -> [In
 launch image' container' profile' scripts' =
     let ctx = LaunchCtx scripts' (pack image') profile' (pack container') in
     flip runReaderT ctx $ do
+        c <- container <$> ask
         launchContainer
         sleep 4.0
-        ask >>= mapM_ runInitScript . initScripts
+        ask >>= mapM_ (flip runReaderT c . runInitScript) . initScripts
         includeInitScripts
         echo $ "Successfully initialized " <> pack container'
 
@@ -56,19 +54,14 @@ launchContainer = do
     case p of Nothing -> lxc ["launch", i, c]
               Just p' -> lxc ["launch", i, c, "--profile", pack p']
 
-runInitScript :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => InitScriptContext -> m ()
-runInitScript s = mapM_ run' actions'
-  where
-    actions' = scriptActions . actions $ initScript s
-    run' = runScriptAction (context s)
-
 includeInitScripts :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => m ()
 includeInitScripts = do
+    c <- container <$> ask
     file <- tmpfile "lxdfile-metadata-initscripts"
     ask >>= liftIO . writeFile file . encodePretty . map initScript . initScripts
-    lxcExec ["mkdir", "-p", "/etc/lxdfile"]
-    lxcFilePush "0644" file "/etc/lxdfile/initscripts"
+    run $ lxcExec ["mkdir", "-p", "/etc/lxdfile"]
+    flip runReaderT c $ lxcFilePush "0644" file "/etc/lxdfile/initscripts"
     rm (decodeString file)
 
-instance MonadReader LaunchCtx m => HasContainer m where
-    askContainer = container <$> ask
+run :: MonadReader LaunchCtx m => ReaderT Container m a -> m a
+run x = container <$> ask >>= runReaderT x
