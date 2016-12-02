@@ -80,7 +80,7 @@ runScriptAction _ (SRun ctx cmd) = do
     lxcExec ["mkdir", "/var/run/lxdfile"]
     lxcFilePush "0700" script "/var/run/lxdfile/setup"
     rm (decodeString script)
-    lxcExec ["/var/run/lxdfile/setup"]
+    lxcExec ["/bin/sh", "/var/run/lxdfile/setup"]
     lxcExec ["rm", "-rf", "/var/run/lxdfile"]
   where
     makeScript = do
