@@ -77,7 +77,7 @@ runScriptAction :: (MonadIO m, MonadError String m, MonadReader Container m) => 
 runScriptAction _ (SRun ctx cmd) = do
     echo $ "RUN " <> showT cmd
     script <- makeScript
-    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
     lxcFilePush "0700" script "/var/run/lxdfile/setup"
     rm (decodeString script)
     lxcExec ["/bin/sh", "/var/run/lxdfile/setup"]
@@ -98,10 +98,10 @@ runScriptAction ctxDir (SCopy ctx src dst') = do
     echo $ "COPY " <> pack src <> " " <> pack dst'
     let dst = copyDest ctx dst'
     tar <- createTar
-    lxcExec ["mkdir", "/var/run/lxdfile"]
+    lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
     lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
     rm (decodeString tar)
-    lxcExec ["mkdir", "/var/run/lxdfile/archive"]
+    lxcExec ["mkdir", "-p", "/var/run/lxdfile/archive"]
     lxcExec ["tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
     lxcExec ["mkdir", "-p", pack (takeDirectory dst)]
     lxcExec ["cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
