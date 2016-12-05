@@ -1,5 +1,5 @@
 name:                lxdfile
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            A Dockerfile-like file format for LXD containers.
 description:
     Manage LXD containers using a Dockerfile-like file format, with
