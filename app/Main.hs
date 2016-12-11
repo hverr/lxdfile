@@ -11,6 +11,7 @@ import Options.Applicative
 
 import System.Exit (exitFailure)
 
+import Language.LXDFile (Image, baseImage)
 import Language.LXDFile.InitScript.Types (InitScriptError)
 import Language.LXDFile.Version (version)
 import System.LXD.LXDFile.Launch (Profile, InitScriptContext(..))
@@ -20,7 +21,7 @@ import qualified System.LXD.LXDFile as LXDFile
 
 data InitScriptArg = InitScriptArg FilePath FilePath -- ^ Init script, context
 
-data Command = BuildCommand FilePath String FilePath -- ^ LXDFile, image tag and base directory
+data Command = BuildCommand FilePath String FilePath (Maybe Image) -- ^ LXDFile, image tag, base directory, and base image
              | LaunchCommand String String Profile [InitScriptArg]       -- ^ Image, container, context, profile, list of init scripts
              | InjectCommand String [InitScriptArg] -- ^ Container, init scripts
              | VersionCommand
@@ -35,6 +36,7 @@ buildCmd =
     cmd' = BuildCommand <$> strOption (short 'f' <> metavar "LXDFILE" <> value "lxdfile" <> help "location of the lxdfile")
                         <*> strArgument (metavar "NAME" <> help "name of the newly built image")
                         <*> strArgument (metavar "DIR" <> value "." <> help "base directory")
+                        <*> option (Just <$> str) (long "from" <> metavar "IMAGE" <> value Nothing <> help "override the base image")
 
 launchCmd :: Mod CommandFields Command
 launchCmd =
@@ -84,9 +86,11 @@ cmd action' = do
                 exitFailure
 
 run :: (MonadIO m, MonadError String m) => Command -> m ()
-run (BuildCommand fp name dir) = do
+run (BuildCommand fp name dir base) = do
     lxdfile <- liftIO (LXDFile.parseFile fp) >>= orErr "parse error"
-    LXDFile.build lxdfile name dir
+    let lxdfile' = case base of Nothing -> lxdfile
+                                Just b -> lxdfile { baseImage = b }
+    LXDFile.build lxdfile' name dir
   where
     orErr pref = either (showErr pref) return
     showErr pref e = throwError $ pref ++ ": " ++ show e
