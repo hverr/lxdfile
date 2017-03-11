@@ -5,6 +5,7 @@ module Main where
 import Control.Monad.Except (ExceptT, MonadError, runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
+import Data.Monoid ((<>))
 import Data.Version (showVersion)
 
 import Options.Applicative

@@ -21,11 +21,12 @@ import Data.Text (Text, pack, unpack)
 import Text.Parsec (parse, many, noneOf, string)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (Fold(..), fold, echo, inproc, rm, format, sleep, (%))
+import Turtle (Line, Fold(..), fold, lineToText, inproc, rm, format, sleep, (%))
 import qualified Turtle as R
 
 import Language.LXDFile (LXDFile(..))
 import System.LXD.LXDFile.ScriptAction (scriptActions, runScriptAction, tmpfile)
+import System.LXD.LXDFile.Utils.Line (echoT, echoS, unsafeStringToLine)
 import System.LXD.LXDFile.Utils.Monad (orThrowM)
 import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
 
@@ -42,27 +43,33 @@ build lxdfile'@LXDFile{..} imageName' context' = do
                        , context = context'
                        , buildContainer = container }
     flip runReaderT ctx $ do
-        echo $ "Building " <> pack imageName' <> " in " <> container
+        echoT $ "Building " <> pack imageName' <> " in " <> container
         sleep 5.0
 
         mapM_ (flip runReaderT container . runScriptAction context') $ scriptActions actions
         includeLXDFile
 
-        echo $ "Stopping " <> container
+        echoT $ "Stopping " <> container
         lxc ["stop", container]
 
-        echo $ "Publishing to " <> pack imageName'
+        echoS $ "Publishing to " <> imageName'
         case description of
             Nothing ->   lxc ["publish", container, format ("--alias=" % R.s) (pack imageName')]
             Just desc -> lxc ["publish", container, format ("--alias=" % R.s) (pack imageName'), format ("description=" % R.s) (pack desc)]
         lxc ["delete", container]
   where
     launch :: MonadIO m => m (Maybe Text)
-    launch = fold (inproc "lxc" ["launch", pack baseImage] mempty) $
+    launch = do
+        line <- launchLine
+        return $ lineToText <$> line
+
+    launchLine :: MonadIO m => m (Maybe Line)
+    launchLine = fold (inproc "lxc" ["launch", pack baseImage] mempty) $
         Fold selectLaunchName Nothing id
+
     selectLaunchName (Just x) _ = Just x
-    selectLaunchName _        x = parseLaunch x
-    parseLaunch = (pack <$>) . rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
+    selectLaunchName _        x = unsafeStringToLine <$> parseLaunch (lineToText x)
+    parseLaunch = rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
 
 includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
 includeLXDFile = do

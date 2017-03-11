@@ -21,10 +21,11 @@ import Data.Monoid ((<>))
 import Data.Text (Text, pack)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (echo, rm, sleep)
+import Turtle (rm, sleep)
 
 import System.LXD.LXDFile.Inject (InitScriptContext(..), runInitScript)
 import System.LXD.LXDFile.ScriptAction (tmpfile)
+import System.LXD.LXDFile.Utils.Line (echoS, echoT)
 import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
 
 type Profile = Maybe String
@@ -43,14 +44,14 @@ launch image' container' profile' scripts' =
         sleep 4.0
         ask >>= mapM_ (flip runReaderT c . runInitScript) . initScripts
         includeInitScripts
-        echo $ "Successfully initialized " <> pack container'
+        echoS $ "Successfully initialized " <> container'
 
 launchContainer :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => m ()
 launchContainer = do
     i <- image <$> ask
     c <- container <$> ask
     p <- profile <$> ask
-    echo $ "Launching " <> i <> " as " <> c
+    echoT $ "Launching " <> i <> " as " <> c
     case p of Nothing -> lxc ["launch", i, c]
               Just p' -> lxc ["launch", i, c, "--profile", pack p']
 

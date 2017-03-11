@@ -9,10 +9,10 @@ import Control.Monad.Reader (MonadReader)
 
 import Data.Foldable (foldlM)
 import Data.Monoid ((<>))
-import Data.Text (Text, pack)
+import Data.Text (pack)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (echo, output, rm)
+import Turtle (Line, echo, output, rm)
 import qualified Codec.Archive.Tar as Tar
 
 import System.Directory (getTemporaryDirectory)
@@ -21,9 +21,9 @@ import System.IO.Temp (openTempFile)
 import System.FilePath (takeDirectory)
 
 import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination, Key, Value)
+import System.LXD.LXDFile.Utils.Line (showL, echoS, unsafeStringToLine)
 import System.LXD.LXDFile.Utils.String (replace)
 import System.LXD.LXDFile.Utils.Shell (Container, lxcExec, lxcFilePush)
-import System.LXD.LXDFile.Utils.Text (showT)
 
 data ScriptCtx = ScriptCtx { _currentDirectory :: FilePath
                            , _environment :: [(String, String)] }
@@ -56,26 +56,26 @@ scriptAction (Environment key value) = do
     return $ SEnvironment key value
 scriptAction (Run x) = SRun <$> get <*> pure x
 
-currentDirectorySh :: ScriptCtx -> [Text]
-currentDirectorySh ctx = ["cd " <> pack (ctx ^. currentDirectory)]
+currentDirectorySh :: ScriptCtx -> [Line]
+currentDirectorySh ctx = ["cd " <> unsafeStringToLine (ctx ^. currentDirectory)]
 
-environmentSh :: ScriptCtx -> [Text]
+environmentSh :: ScriptCtx -> [Line]
 environmentSh ctx = map conv $ ctx ^. environment
-   where conv (key, value) = pack key <> "=" <> pack value
+   where conv (key, value) = unsafeStringToLine $ key ++ "=" ++ value
 
 copyDest :: ScriptCtx -> Destination -> Destination
 copyDest _ d@('/':_) = d
 copyDest ctx dir = (ctx ^. currentDirectory) <> "/" <> dir
 
-argumentsSh :: Arguments -> [Text]
-argumentsSh (ArgumentsShell s) = [pack s]
-argumentsSh (ArgumentsList xs) = [pack . unwords $ map escapeArg xs]
+argumentsSh :: Arguments -> [Line]
+argumentsSh (ArgumentsShell s) = [unsafeStringToLine s]
+argumentsSh (ArgumentsList xs) = [unsafeStringToLine . unwords $ map escapeArg xs]
   where
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
 runScriptAction :: (MonadIO m, MonadError String m, MonadReader Container m) => FilePath -> ScriptAction -> m ()
 runScriptAction _ (SRun ctx cmd) = do
-    echo $ "RUN " <> showT cmd
+    echo $ "RUN " <> showL cmd
     script <- makeScript
     lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
     lxcFilePush "0700" script "/var/run/lxdfile/setup"
@@ -91,11 +91,11 @@ runScriptAction _ (SRun ctx cmd) = do
                       ++ map return (environmentSh ctx) ++ [
                       return "set -x"
                     ] ++ map return (argumentsSh cmd)
-        output (decodeString fp) $ mconcat $ fmap (<> "\n") cmds'
+        output (decodeString fp) $ mconcat cmds'
         return fp
 
 runScriptAction ctxDir (SCopy ctx src dst') = do
-    echo $ "COPY " <> pack src <> " " <> pack dst'
+    echoS $ "COPY " ++ src ++  " " ++ dst'
     let dst = copyDest ctx dst'
     tar <- createTar
     lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
@@ -112,8 +112,8 @@ runScriptAction ctxDir (SCopy ctx src dst') = do
         liftIO $ Tar.create fp ctxDir [src]
         return fp
 
-runScriptAction _ (SChangeDirectory fp) = echo $ "CD " <> pack fp
-runScriptAction _ (SEnvironment key value) = echo $ "ENV " <> pack key <> "=" <> pack value
+runScriptAction _ (SChangeDirectory fp) = echoS $ "CD " <> fp
+runScriptAction _ (SEnvironment key value) = echoS $ "ENV " <> key <> "=" <> value
 
 tmpfile :: MonadIO m => String -> m FilePath
 tmpfile template = do

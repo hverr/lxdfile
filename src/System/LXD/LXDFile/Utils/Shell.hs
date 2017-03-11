@@ -5,17 +5,17 @@ import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ask)
 
-import Data.Monoid ((<>))
+import Data.Monoid ((<>), mconcat)
 import Data.Text (Text, pack)
 
-import Turtle (ExitCode(..), proc)
+import Turtle (ExitCode(..), proc, textToLines)
 
 type Container = Text
 
 exec :: (MonadIO m, MonadError String m) => Text -> [Text] -> Maybe Text -> m ()
 exec cmd args stdin = proc cmd args stdin' >>= toErr
   where
-    stdin' | Just t <- stdin = return t
+    stdin' | Just t <- stdin = mconcat $ map return (textToLines t)
            | otherwise = mempty
     toErr ExitSuccess = return ()
     toErr (ExitFailure status) = throwError $ "error: exec " ++ show (cmd:args) ++ ": return code " ++ show status
