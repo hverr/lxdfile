@@ -44,7 +44,7 @@ instance Runnable Command where
     run Version = liftIO . putStrLn $ showVersion version
 
 instance Runnable Volume where
-    run (List container) = Volume.list container
+    run (List container) = Volume.list_ container
 
 parseLXDFilePath :: MonadRun m => LXDFilePath -> m LXDFile
 parseLXDFilePath fp = liftIO (LXDFile.parseFile fp) >>= orErr "parse error"
