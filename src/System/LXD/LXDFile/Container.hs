@@ -18,8 +18,8 @@ type Remote = String
 splitContainer :: Container -> (Remote, Container)
 splitContainer x = case break (== ':') x of
     (c, []) -> ("", c)
-    ([], c) -> ("", c)
-    (r, c)  -> (r, c)
+    ("", _:c) -> ("", c)
+    (r, _:c)  -> (r, c)
 
 containerIsLocal :: Container -> Bool
 containerIsLocal c =
