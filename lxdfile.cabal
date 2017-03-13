@@ -61,6 +61,10 @@ library
 executable lxdfile
   hs-source-dirs:      app
   main-is:             Main.hs
+  other-modules:       Commands
+                     , Commands.Parser
+                     , Commands.Run
+                     , Commands.Types
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -static -optl-static -optl-pthread -Wall -Werror
   build-depends:       base
                      , lxdfile
