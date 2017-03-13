@@ -28,6 +28,7 @@ library
                      , Language.LXDFile.Version
                      , System.LXD.LXDFile
                      , System.LXD.LXDFile.Build
+                     , System.LXD.LXDFile.Container
                      , System.LXD.LXDFile.Inject
                      , System.LXD.LXDFile.Launch
                      , System.LXD.LXDFile.ScriptAction
@@ -36,6 +37,7 @@ library
                      , System.LXD.LXDFile.Utils.Shell
                      , System.LXD.LXDFile.Utils.String
                      , System.LXD.LXDFile.Utils.Text
+                     , System.LXD.LXDFile.Volume
   other-modules:       Paths_lxdfile
   build-depends:       base >= 4.7 && < 5
                      , aeson

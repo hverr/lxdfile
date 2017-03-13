@@ -15,6 +15,7 @@ import qualified Language.LXDFile.InitScript as InitScript
 
 import System.LXD.LXDFile.Launch (InitScriptContext(..))
 import qualified System.LXD.LXDFile as LXDFile
+import qualified System.LXD.LXDFile.Volume as Volume
 
 import Commands.Types
 
@@ -43,7 +44,7 @@ instance Runnable Command where
     run Version = liftIO . putStrLn $ showVersion version
 
 instance Runnable Volume where
-    run (List _) = undefined
+    run (List container) = Volume.list container
 
 parseLXDFilePath :: MonadRun m => LXDFilePath -> m LXDFile
 parseLXDFilePath fp = liftIO (LXDFile.parseFile fp) >>= orErr "parse error"
