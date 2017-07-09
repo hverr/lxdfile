@@ -18,7 +18,7 @@ import Data.Either.Combinators (rightToMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text, pack, unpack)
 
-import Text.Parsec (parse, many, noneOf, string)
+import Text.Parsec (parse, many, noneOf, char, string)
 
 import Filesystem.Path.CurrentOS (decodeString)
 import Turtle (Line, Fold(..), fold, lineToText, inproc, rm, format, sleep, (%))
@@ -69,7 +69,7 @@ build lxdfile'@LXDFile{..} imageName' context' = do
 
     selectLaunchName (Just x) _ = Just x
     selectLaunchName _        x = unsafeStringToLine <$> parseLaunch (lineToText x)
-    parseLaunch = rightToMaybe . parse (string "Creating " *> many (noneOf " ")) "" . unpack
+    parseLaunch = rightToMaybe . parse (many (char '\r') *> string "Container name is: " *> many (noneOf " ")) "" . unpack
 
 includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
 includeLXDFile = do
