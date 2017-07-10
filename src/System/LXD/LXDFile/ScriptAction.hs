@@ -12,7 +12,7 @@ import Data.Monoid ((<>))
 import Data.Text (pack)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (Line, echo, output, rm)
+import Turtle (Line, echo, output, rm, select)
 import qualified Codec.Archive.Tar as Tar
 
 import System.Directory (getTemporaryDirectory)
@@ -85,13 +85,13 @@ runScriptAction _ (SRun ctx cmd) = do
   where
     makeScript = do
         fp <- tmpfile "lxdfile-setup.sh"
-        let cmds' = [ return "#!/bin/sh"
-                    , return "set -e"
-                    ] ++ map return (currentDirectorySh ctx)
-                      ++ map return (environmentSh ctx) ++ [
-                      return "set -x"
-                    ] ++ map return (argumentsSh cmd)
-        output (decodeString fp) $ mconcat cmds'
+        let cmds' = [ "#!/bin/sh"
+                    , "set -e"
+                    ] ++ currentDirectorySh ctx
+                      ++ environmentSh ctx ++ [
+                      "set -x"
+                    ] ++ argumentsSh cmd
+        output (decodeString fp) $ select cmds'
         return fp
 
 runScriptAction ctxDir (SCopy ctx src dst') = do
