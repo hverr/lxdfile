@@ -11,58 +11,72 @@ module System.LXD.LXDFile.Launch (
 
 import Prelude hiding (writeFile)
 
-import Control.Monad.Except (MonadError)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ReaderT, runReaderT, ask)
+import Control.Monad.Trans (lift)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy (writeFile)
+import Data.Coerce (coerce)
 import Data.Monoid ((<>))
-import Data.Text (Text, pack)
+import qualified Data.Text as T
 
 import Filesystem.Path.CurrentOS (decodeString)
 import Turtle (rm, sleep)
 
+import Network.LXD.Client.Commands
+    (HasClient(..),
+     ContainerCreateRequest(..), containerCreateRequest,
+     ContainerName(..),
+     lxcCreate, lxcStart, lxcFileMkdir, lxcFilePush)
+
 import System.LXD.LXDFile.Inject (InitScriptContext(..), runInitScript)
 import System.LXD.LXDFile.ScriptAction (tmpfile)
+import System.LXD.LXDFile.Types (Image, containerSourceFromImage)
 import System.LXD.LXDFile.Utils.Line (echoS, echoT)
-import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Utils.Text (showT)
 
 type Profile = Maybe String
 
 data LaunchCtx = LaunchCtx { initScripts :: [InitScriptContext]
-                           , image :: Text
+                           , image :: Image
                            , profile :: Profile
-                           , container :: Text }
+                           , container :: ContainerName }
 
-launch :: (MonadIO m, MonadError String m) => String -> String -> Profile -> [InitScriptContext] -> m ()
+launch :: HasClient m => Image -> ContainerName -> Profile -> [InitScriptContext] -> m ()
 launch image' container' profile' scripts' =
-    let ctx = LaunchCtx scripts' (pack image') profile' (pack container') in
+    let ctx = LaunchCtx scripts' image' profile' container' in
     flip runReaderT ctx $ do
         c <- container <$> ask
         launchContainer
         sleep 4.0
-        ask >>= mapM_ (flip runReaderT c . runInitScript) . initScripts
+        ask >>= mapM_ (lift . flip runReaderT c . runInitScript) . initScripts
         includeInitScripts
-        echoS $ "Successfully initialized " <> container'
+        echoS $ "Successfully initialized " <> coerce container'
 
-launchContainer :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => m ()
+launchContainer :: HasClient m => ReaderT LaunchCtx m ()
 launchContainer = do
     i <- image <$> ask
     c <- container <$> ask
     p <- profile <$> ask
-    echoT $ "Launching " <> i <> " as " <> c
-    case p of Nothing -> lxc ["launch", i, c]
-              Just p' -> lxc ["launch", i, c, "--profile", pack p']
+    echoT $ "Launching " <> showT i <> " as " <> T.pack (coerce c)
 
-includeInitScripts :: (MonadIO m, MonadError String m, MonadReader LaunchCtx m) => m ()
+    let p' = case p of Nothing -> []
+                       Just x  -> [x]
+
+    let req' = containerCreateRequest (coerce c)
+                                      (containerSourceFromImage i)
+        req = req' { containerCreateRequestProfiles = p' }
+    lift $ lxcCreate req
+    lift $ lxcStart c
+
+
+includeInitScripts :: HasClient m => ReaderT LaunchCtx m ()
 includeInitScripts = do
     c <- container <$> ask
     file <- tmpfile "lxdfile-metadata-initscripts"
     ask >>= liftIO . writeFile file . encodePretty . map initScript . initScripts
-    run $ lxcExec ["mkdir", "-p", "/etc/lxdfile"]
-    flip runReaderT c $ lxcFilePush "0644" file "/etc/lxdfile/initscripts"
-    rm (decodeString file)
+    lift $ lxcFileMkdir c "/etc/lxdfile" True
+    lift $ lxcFilePush c file "/etc/lxdfile/initscripts"
 
-run :: MonadReader LaunchCtx m => ReaderT Container m a -> m a
-run x = container <$> ask >>= runReaderT x
+    rm (decodeString file)

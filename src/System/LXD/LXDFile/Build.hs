@@ -8,76 +8,93 @@ module System.LXD.LXDFile.Build (
 
 import Prelude hiding (writeFile)
 
-import Control.Monad.Except (MonadError)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
+import Control.Exception (throwIO)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ReaderT, runReaderT, ask)
+import Control.Monad.Trans (lift)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy (writeFile)
-import Data.Either.Combinators (rightToMaybe)
+import Data.Coerce (coerce)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.UUID as UUID
+import qualified Data.Attoparsec.Text as A
 
-import Text.Parsec (parse, many, noneOf, char, string)
+import Network.LXD.Client.Commands
+    (HasClient(..), ContainerName(..),
+     ImageCreateRequest(..), ImageSource(..), LocalContainer(..), ImageAlias(..), imageCreateRequest,
+     containerCreateRequest,
+     lxcStop, lxcImageCreate, lxcDelete, lxcCreate, lxcStart, lxcFileMkdir, lxcFilePush)
+
+import System.IO.Error (userError)
+import System.Random (randomIO)
 
 import Filesystem.Path.CurrentOS (decodeString)
-import Turtle (Line, Fold(..), fold, lineToText, inproc, rm, format, sleep, (%))
-import qualified Turtle as R
+import Turtle (rm, sleep)
 
 import Language.LXDFile (LXDFile(..))
 import System.LXD.LXDFile.ScriptAction (scriptActions, runScriptAction, tmpfile)
-import System.LXD.LXDFile.Utils.Line (echoT, echoS, unsafeStringToLine)
-import System.LXD.LXDFile.Utils.Monad (orThrowM)
-import System.LXD.LXDFile.Utils.Shell (Container, lxc, lxcExec, lxcFilePush)
+import System.LXD.LXDFile.Types (parseImage, containerSourceFromImage)
+import System.LXD.LXDFile.Utils.Line (echoT)
+import System.LXD.LXDFile.Utils.Text (showT)
 
 data BuildCtx = BuildCtx { lxdfile :: LXDFile
-                         , imageName :: String
+                         , imageName :: Text
                          , context :: FilePath
-                         , buildContainer :: Text }
+                         , buildContainer :: ContainerName }
 
-build :: (MonadIO m, MonadError String m) => LXDFile -> String -> FilePath -> m ()
+build :: HasClient m => LXDFile -> Text -> FilePath -> m ()
 build lxdfile'@LXDFile{..} imageName' context' = do
-    container <- launch `orThrowM` "error: could not launch container"
+    container <- launch
     let ctx = BuildCtx { lxdfile = lxdfile'
                        , imageName = imageName'
                        , context = context'
                        , buildContainer = container }
     flip runReaderT ctx $ do
-        echoT $ "Building " <> pack imageName' <> " in " <> container
+        echoT $ "Building " <> imageName' <> " in " <> showT container
         sleep 5.0
 
-        mapM_ (flip runReaderT container . runScriptAction context') $ scriptActions actions
+        lift $ mapM_ (flip runReaderT container . runScriptAction context') $ scriptActions actions
         includeLXDFile
 
-        echoT $ "Stopping " <> container
-        lxc ["stop", container]
+        echoT $ "Stopping " <> showT container
+        lift $ lxcStop container False
 
-        echoS $ "Publishing to " <> imageName'
-        case description of
-            Nothing ->   lxc ["publish", container, format ("--alias=" % R.s) (pack imageName')]
-            Just desc -> lxc ["publish", container, format ("--alias=" % R.s) (pack imageName'), format ("description=" % R.s) (pack desc)]
-        lxc ["delete", container]
+        echoT $ "Publishing to " <> imageName'
+        let alias = ImageAlias (T.unpack imageName')
+                               (fromMaybe "" description)
+                               Nothing
+            req' = imageCreateRequest
+                 . ImageSourceLocalContainer
+                 . LocalContainer
+                 $ container
+            req = req' { imageCreateRequestAliases = [alias] }
+
+        lift $ lxcImageCreate req
+        lift $ lxcDelete container
   where
-    launch :: MonadIO m => m (Maybe Text)
+    launch :: HasClient m => m ContainerName
     launch = do
-        line <- launchLine
-        return $ lineToText <$> line
+        img <- case A.parseOnly parseImage (T.pack baseImage) of
+            Left err -> liftIO . throwIO . userError $ "Could not parse base image: " ++ baseImage ++ err
+            Right i -> return i
+        n <- ContainerName . UUID.toString <$> liftIO randomIO
 
-    launchLine :: MonadIO m => m (Maybe Line)
-    launchLine = fold (inproc "lxc" ["launch", pack baseImage] mempty) $
-        Fold selectLaunchName Nothing id
+        let req = containerCreateRequest (coerce n)
+                $ containerSourceFromImage img
+        lxcCreate req
+        lxcStart n
 
-    selectLaunchName (Just x) _ = Just x
-    selectLaunchName _        x = unsafeStringToLine <$> parseLaunch (lineToText x)
-    parseLaunch = rightToMaybe . parse (many (char '\r') *> string "Container name is: " *> many (noneOf " ")) "" . unpack
+        return n
 
-includeLXDFile :: (MonadIO m, MonadError String m, MonadReader BuildCtx m) => m ()
+includeLXDFile :: HasClient m => ReaderT BuildCtx m ()
 includeLXDFile = do
+    c <- buildContainer <$> ask
     file <- tmpfile "lxdfile-metadata-lxdfile"
     ask >>= liftIO . writeFile file . encodePretty . lxdfile
-    run $ lxcExec ["mkdir", "-p", "/etc/lxdfile"]
-    run $ lxcFilePush "0644" file "/etc/lxdfile/lxdfile"
+    lift $ lxcFileMkdir c "/etc/lxdfile" True
+    lift $ lxcFilePush c file "/etc/lxdfile/lxdfile"
     rm (decodeString file)
-
-run :: MonadReader BuildCtx m => ReaderT Container m a -> m a
-run x = buildContainer <$> ask >>= runReaderT x

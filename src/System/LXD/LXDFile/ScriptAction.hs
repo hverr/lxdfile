@@ -1,19 +1,24 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 module System.LXD.LXDFile.ScriptAction where
 
 import Control.Lens (Lens', lens, (^.), (.~), (%~))
-import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (State, evalState, modify, get)
-import Control.Monad.Reader (MonadReader)
+import Control.Monad.Reader (ReaderT, ask)
+import Control.Monad.Trans (lift)
 
 import Data.Foldable (foldlM)
 import Data.Monoid ((<>))
-import Data.Text (pack)
+import qualified Data.ByteString.Lazy as BL
 
 import Filesystem.Path.CurrentOS (decodeString)
 import Turtle (Line, echo, output, rm, select)
 import qualified Codec.Archive.Tar as Tar
+
+import Network.LXD.Client.Commands
+    (HasClient(..), ContainerName(..),
+     lxcFileMkdir, lxcFilePush, lxcExec)
 
 import System.Directory (getTemporaryDirectory)
 import System.IO (hClose)
@@ -23,7 +28,6 @@ import System.FilePath (takeDirectory)
 import Language.LXDFile.Types (Action(..), Arguments(..), Source, Destination, Key, Value)
 import System.LXD.LXDFile.Utils.Line (showL, echoS, unsafeStringToLine)
 import System.LXD.LXDFile.Utils.String (replace)
-import System.LXD.LXDFile.Utils.Shell (Container, lxcExec, lxcFilePush)
 
 data ScriptCtx = ScriptCtx { _currentDirectory :: FilePath
                            , _environment :: [(String, String)] }
@@ -73,15 +77,18 @@ argumentsSh (ArgumentsList xs) = [unsafeStringToLine . unwords $ map escapeArg x
   where
     escapeArg = replace " " "\\ " . replace "\t" "\\\t" . replace "\"" "\\\"" . replace "'" "\\'"
 
-runScriptAction :: (MonadIO m, MonadError String m, MonadReader Container m) => FilePath -> ScriptAction -> m ()
+runScriptAction :: HasClient m => FilePath -> ScriptAction -> ReaderT ContainerName m ()
 runScriptAction _ (SRun ctx cmd) = do
+    c <- ask
     echo $ "RUN " <> showL cmd
     script <- makeScript
-    lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
-    lxcFilePush "0700" script "/var/run/lxdfile/setup"
+    lift $ lxcFileMkdir c "/var/run/lxdfile" True
+    lift $ lxcFilePush c script "/var/run/lxdfile/setup"
+    lift $ lxcExec c "chmod" ["0700", "/var/run/lxdfile/setup"] "" >>= liftIO . BL.putStr
     rm (decodeString script)
-    lxcExec ["/bin/sh", "/var/run/lxdfile/setup"]
-    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
+
+    lift $ lxcExec c "/bin/sh" ["/var/run/lxdfile/setup"] "" >>= liftIO . BL.putStr
+    lift $ lxcExec c "rm" ["-rf", "/var/run/lxdfile"] "" >>= liftIO . BL.putStr
   where
     makeScript = do
         fp <- tmpfile "lxdfile-setup.sh"
@@ -95,17 +102,18 @@ runScriptAction _ (SRun ctx cmd) = do
         return fp
 
 runScriptAction ctxDir (SCopy ctx src dst') = do
+    c <- ask
     echoS $ "COPY " ++ src ++  " " ++ dst'
     let dst = copyDest ctx dst'
     tar <- createTar
-    lxcExec ["mkdir", "-p", "/var/run/lxdfile"]
-    lxcFilePush "0600" tar "/var/run/lxdfile/archive.tar"
+    lift $ lxcExec c "mkdir" ["-p", "/var/run/lxdfile"] "" >>= liftIO . BL.putStr
+    lift $ lxcFilePush c tar "/var/run/lxdfile/archive.tar"
     rm (decodeString tar)
-    lxcExec ["mkdir", "-p", "/var/run/lxdfile/archive"]
-    lxcExec ["tar", "-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"]
-    lxcExec ["mkdir", "-p", pack (takeDirectory dst)]
-    lxcExec ["cp", "-R", "/var/run/lxdfile/archive/" <> pack src, pack dst]
-    lxcExec ["rm", "-rf", "/var/run/lxdfile"]
+    lift $ lxcExec c "mkdir" ["-p", "/var/run/lxdfile/archive"] "" >>= liftIO . BL.putStr
+    lift $ lxcExec c "tar" ["-xf", "/var/run/lxdfile/archive.tar", "-C", "/var/run/lxdfile/archive"] "" >>= liftIO . BL.putStr
+    lift $ lxcExec c "mkdir" ["-p", takeDirectory dst] "" >>= liftIO . BL.putStr
+    lift $ lxcExec c "cp" ["-R", "/var/run/lxdfile/archive/" <> src, dst] "" >>= liftIO . BL.putStr
+    lift $ lxcExec c "rm" ["-rf", "/var/run/lxdfile"] "" >>= liftIO . BL.putStr
   where
     createTar = do
         fp <- tmpfile "lxdfile-archive.tar"

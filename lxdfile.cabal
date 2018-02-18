@@ -31,8 +31,8 @@ library
                      , System.LXD.LXDFile.Inject
                      , System.LXD.LXDFile.Launch
                      , System.LXD.LXDFile.ScriptAction
+                     , System.LXD.LXDFile.Types
                      , System.LXD.LXDFile.Utils.Line
-                     , System.LXD.LXDFile.Utils.Monad
                      , System.LXD.LXDFile.Utils.Shell
                      , System.LXD.LXDFile.Utils.String
                      , System.LXD.LXDFile.Utils.Text
@@ -40,13 +40,17 @@ library
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , aeson-pretty
+                     , attoparsec
                      , bytestring
                      , directory
                      , either
+                     , exceptions
                      , filepath
                      , lens
+                     , lxd-client
                      , mtl
                      , parsec
+                     , random
                      , split
                      , system-filepath
                      , tar
@@ -54,6 +58,7 @@ library
                      , text
                      , transformers
                      , turtle
+                     , uuid
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings
   ghc-options:         -Wall -Werror
@@ -64,8 +69,15 @@ executable lxdfile
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -static -optl-static -optl-pthread -Wall -Werror
   build-depends:       base
                      , lxdfile
+                     , attoparsec
+                     , containers
+                     , exceptions
+                     , lxd-client
+                     , lxd-client-config
                      , mtl
+                     , network-uri
                      , optparse-applicative
+                     , text
                      , transformers
   default-language:    Haskell2010
 
