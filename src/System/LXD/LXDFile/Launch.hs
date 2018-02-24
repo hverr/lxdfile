@@ -67,7 +67,7 @@ launchContainer = do
     cfg <- lxcConfig <$> ask
     echoT $ "Launching " <> showT i <> " as " <> T.pack (coerce c)
 
-    let p' = case p of Nothing -> []
+    let p' = case p of Nothing -> ["default"]
                        Just x  -> [x]
 
     img <- case containerSourceFromImage cfg i of
@@ -75,7 +75,10 @@ launchContainer = do
         Right x -> return x
     let req' = containerCreateRequest (coerce c) img
         req = req' { containerCreateRequestProfiles = p' }
+    echoT $ "Creating " <> showT req
     lift $ lxcCreate req
+
+    echoS $ "Launching " <> coerce c
     lift $ lxcStart c
 
 

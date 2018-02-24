@@ -9,7 +9,7 @@ import qualified Data.Attoparsec.Text as A
 import qualified Data.Map as Map
 import qualified Data.Text as T
 
-import Network.LXD.Client.Commands (ContainerSource(..), LocalImageByAlias(..), ImageAliasName(..), remoteImage)
+import Network.LXD.Client.Commands (ContainerSource(..), LocalImageByAlias(..), ImageAliasName(..), RemoteImage(..), remoteImage)
 
 import qualified System.LXD.Client.Config as LXC
 
@@ -45,9 +45,11 @@ containerSourceFromImage LXC.Config{..} Image{..} = case imageRemote of
              $ T.unpack imageName
     Just r -> case Map.lookup r configRemotes of
         Nothing -> Left $ "unknown remote: " ++ T.unpack r
-        Just addr -> Right . ContainerSourceRemote
-                   $ remoteImage (T.unpack $ LXC.remoteAddr addr)
+        Just addr ->
+            let i' = remoteImage (T.unpack $ LXC.remoteAddr addr)
                                  (ImageAliasName $ T.unpack imageName)
+                i = i' { remoteImageProtocol = T.unpack <$> LXC.remoteProtocol addr }
+            in Right $ ContainerSourceRemote i
 
 -- | A conainer specified on the command line.
 data Container = Container {
