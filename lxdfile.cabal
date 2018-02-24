@@ -42,12 +42,14 @@ library
                      , aeson-pretty
                      , attoparsec
                      , bytestring
+                     , containers
                      , directory
                      , either
                      , exceptions
                      , filepath
                      , lens
                      , lxd-client
+                     , lxd-client-config
                      , mtl
                      , parsec
                      , random

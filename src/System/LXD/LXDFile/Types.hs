@@ -6,9 +6,12 @@ module System.LXD.LXDFile.Types where
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Attoparsec.Text as A
+import qualified Data.Map as Map
 import qualified Data.Text as T
 
 import Network.LXD.Client.Commands (ContainerSource(..), LocalImageByAlias(..), ImageAliasName(..), remoteImage)
+
+import qualified System.LXD.Client.Config as LXC
 
 -- | An image specified on the command line.
 data Image = Image {
@@ -33,14 +36,18 @@ serializeImage :: Image -> Text
 serializeImage Image{..} = case imageRemote of Just r -> r <> ":" <> imageName
                                                Nothing -> imageName
 
-containerSourceFromImage :: Image -> ContainerSource
-containerSourceFromImage Image{..} = case imageRemote of
-    Nothing -> ContainerSourceLocalByAlias
+containerSourceFromImage :: LXC.Config -> Image -> Either String ContainerSource
+containerSourceFromImage LXC.Config{..} Image{..} = case imageRemote of
+    Nothing -> Right
+             . ContainerSourceLocalByAlias
              . LocalImageByAlias
              . ImageAliasName
              $ T.unpack imageName
-    Just r -> ContainerSourceRemote
-            $ remoteImage (T.unpack r) (ImageAliasName $ T.unpack imageName)
+    Just r -> case Map.lookup r configRemotes of
+        Nothing -> Left $ "unknown remote: " ++ T.unpack r
+        Just addr -> Right . ContainerSourceRemote
+                   $ remoteImage (T.unpack $ LXC.remoteAddr addr)
+                                 (ImageAliasName $ T.unpack imageName)
 
 -- | A conainer specified on the command line.
 data Container = Container {

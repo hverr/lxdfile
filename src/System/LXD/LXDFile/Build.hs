@@ -8,7 +8,7 @@ module System.LXD.LXDFile.Build (
 
 import Prelude hiding (writeFile)
 
-import Control.Exception (throwIO)
+import Control.Monad.Catch
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.Trans (lift)
@@ -29,6 +29,8 @@ import Network.LXD.Client.Commands
      containerCreateRequest,
      lxcStop, lxcImageCreate, lxcDelete, lxcCreate, lxcStart, lxcFileMkdir, lxcFilePush)
 
+import qualified System.LXD.Client.Config as LXC
+
 import System.IO.Error (userError)
 import System.Random (randomIO)
 
@@ -46,8 +48,8 @@ data BuildCtx = BuildCtx { lxdfile :: LXDFile
                          , context :: FilePath
                          , buildContainer :: ContainerName }
 
-build :: HasClient m => LXDFile -> Text -> FilePath -> m ()
-build lxdfile'@LXDFile{..} imageName' context' = do
+build :: HasClient m => LXC.Config -> LXDFile -> Text -> FilePath -> m ()
+build lxcCfg lxdfile'@LXDFile{..} imageName' context' = do
     container <- launch
     let ctx = BuildCtx { lxdfile = lxdfile'
                        , imageName = imageName'
@@ -79,12 +81,13 @@ build lxdfile'@LXDFile{..} imageName' context' = do
     launch :: HasClient m => m ContainerName
     launch = do
         img <- case A.parseOnly parseImage (T.pack baseImage) of
-            Left err -> liftIO . throwIO . userError $ "Could not parse base image: " ++ baseImage ++ err
-            Right i -> return i
+            Left err -> throwM . userError $ "Could not parse base image: " ++ baseImage ++ err
+            Right i -> case containerSourceFromImage lxcCfg i of
+                Left e -> throwM $ userError e
+                Right x -> return x
         n <- ContainerName . UUID.toString <$> liftIO randomIO
 
-        let req = containerCreateRequest (coerce n)
-                $ containerSourceFromImage img
+        let req = containerCreateRequest (coerce n) img
         lxcCreate req
         lxcStart n
 
