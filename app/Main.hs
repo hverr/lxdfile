@@ -36,11 +36,13 @@ import qualified Language.LXDFile.InitScript as InitScript
 import qualified System.LXD.LXDFile as LXDFile
 
 data InitScriptArg = InitScriptArg FilePath FilePath -- ^ Init script, context
+                   deriving (Show)
 
 data Command = BuildCommand FilePath Image FilePath (Maybe Image) -- ^ LXDFile, image tag, base directory, and base image
              | LaunchCommand Image Container Profile [InitScriptArg]       -- ^ Image, container, context, profile, list of init scripts
              | InjectCommand Container [InitScriptArg] -- ^ Container, init scripts
              | VersionCommand
+             deriving (Show)
 
 buildCmd :: Mod CommandFields Command
 buildCmd =
@@ -98,17 +100,19 @@ run lxcCfg (BuildCommand fp image dir base) = do
                                 Just b -> lxdfile { baseImage = T.unpack $ serializeImage b }
 
     case imageRemote image of
-        Nothing -> runLocal          $ LXDFile.build lxdfile' (imageName image) dir
-        Just r -> runRemote lxcCfg r $ LXDFile.build lxdfile' (imageName image) dir
+        Nothing -> runLocal          $ LXDFile.build lxcCfg lxdfile' (imageName image) dir
+        Just r -> runRemote lxcCfg r $ LXDFile.build lxcCfg lxdfile' (imageName image) dir
 
 run lxcCfg (LaunchCommand image container profile isas) = do
     scripts <- (sequence <$> mapM parseInitScriptContext isas) >>= orErr "parse error"
     case containerRemote container of
-        Nothing -> runLocal          $ LXDFile.launch image
+        Nothing -> runLocal          $ LXDFile.launch lxcCfg
+                                                      image
                                                       (ContainerName . T.unpack $ containerName container)
                                                       profile
                                                       scripts
-        Just r -> runRemote lxcCfg r $ LXDFile.launch image
+        Just r -> runRemote lxcCfg r $ LXDFile.launch lxcCfg
+                                                      image
                                                       (ContainerName . T.unpack $ containerName container)
                                                       profile
                                                       scripts

@@ -11,6 +11,7 @@ module System.LXD.LXDFile.Launch (
 
 import Prelude hiding (writeFile)
 
+import Control.Monad.Catch
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.Trans (lift)
@@ -30,6 +31,9 @@ import Network.LXD.Client.Commands
      ContainerName(..),
      lxcCreate, lxcStart, lxcFileMkdir, lxcFilePush)
 
+import qualified System.LXD.Client.Config as LXC
+
+
 import System.LXD.LXDFile.Inject (InitScriptContext(..), runInitScript)
 import System.LXD.LXDFile.ScriptAction (tmpfile)
 import System.LXD.LXDFile.Types (Image, containerSourceFromImage)
@@ -38,14 +42,15 @@ import System.LXD.LXDFile.Utils.Text (showT)
 
 type Profile = Maybe String
 
-data LaunchCtx = LaunchCtx { initScripts :: [InitScriptContext]
+data LaunchCtx = LaunchCtx { lxcConfig :: LXC.Config
+                           , initScripts :: [InitScriptContext]
                            , image :: Image
                            , profile :: Profile
                            , container :: ContainerName }
 
-launch :: HasClient m => Image -> ContainerName -> Profile -> [InitScriptContext] -> m ()
-launch image' container' profile' scripts' =
-    let ctx = LaunchCtx scripts' image' profile' container' in
+launch :: HasClient m => LXC.Config -> Image -> ContainerName -> Profile -> [InitScriptContext] -> m ()
+launch lxcCfg image' container' profile' scripts' =
+    let ctx = LaunchCtx lxcCfg scripts' image' profile' container' in
     flip runReaderT ctx $ do
         c <- container <$> ask
         launchContainer
@@ -59,15 +64,21 @@ launchContainer = do
     i <- image <$> ask
     c <- container <$> ask
     p <- profile <$> ask
+    cfg <- lxcConfig <$> ask
     echoT $ "Launching " <> showT i <> " as " <> T.pack (coerce c)
 
-    let p' = case p of Nothing -> []
+    let p' = case p of Nothing -> ["default"]
                        Just x  -> [x]
 
-    let req' = containerCreateRequest (coerce c)
-                                      (containerSourceFromImage i)
+    img <- case containerSourceFromImage cfg i of
+        Left e -> throwM $ userError e
+        Right x -> return x
+    let req' = containerCreateRequest (coerce c) img
         req = req' { containerCreateRequestProfiles = p' }
+    echoT $ "Creating " <> showT req
     lift $ lxcCreate req
+
+    echoS $ "Launching " <> coerce c
     lift $ lxcStart c
 
 

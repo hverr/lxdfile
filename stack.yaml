@@ -1,5 +1,7 @@
 resolver: lts-10.5
 packages:
+- .
+- ../haskell-lxd-client
 extra-deps: []
 flags: {}
 extra-package-dbs: []
