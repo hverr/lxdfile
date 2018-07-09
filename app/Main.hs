@@ -47,16 +47,16 @@ buildCmd =
     command "build" $ info (helper <*> cmd') $ progDesc "build an LXD image using an LXDFile"
  where
     cmd' = BuildCommand <$> strOption (short 'f' <> metavar "LXDFILE" <> value "lxdfile" <> help "location of the lxdfile")
-                        <*> option imageOption (metavar "IMAGE" <> help "name of the newly built image")
+                        <*> argument imageOption (metavar "IMAGE" <> help "name of the newly built image")
                         <*> strArgument (metavar "DIR" <> value "." <> help "base directory")
-                        <*> option (Just <$> imageOption) (long "from" <> metavar "IMAGE" <> value Nothing <> help "override the base image")
+                        <*> argument (Just <$> imageOption) (long "from" <> metavar "IMAGE" <> value Nothing <> help "override the base image")
 
 launchCmd :: Mod CommandFields Command
 launchCmd =
     command "launch" $ info (helper <*> cmd') $ progDesc "launch an LXD image with init scripts"
   where
-    cmd' = LaunchCommand <$> option imageOption (metavar "IMAGE" <> help "name of an LXD iamge")
-                         <*> option containerOption (metavar "CONTAINER" <> help "name of the created LXD container")
+    cmd' = LaunchCommand <$> argument imageOption (metavar "IMAGE" <> help "name of an LXD iamge")
+                         <*> argument containerOption (metavar "CONTAINER" <> help "name of the created LXD container")
                          <*> option (Just <$> str) (short 'p' <> long "profile" <> value Nothing <> help "LXD profile for the launched container")
                          <*> many initScriptArg
 
